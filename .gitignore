@@ -219,3 +219,6 @@ __marimo__/
 
 # Log
 output.log
+
+# Output files
+*.obj
