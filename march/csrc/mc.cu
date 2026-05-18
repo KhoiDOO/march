@@ -64,6 +64,21 @@ namespace mc {
         2163, 2169, 2181, 2184, 2193, 2205, 2217, 2232, 2244, 2259, 2268, 2280, 2292, 2307, 2322, 2328, 2337, 2349, 2355, 2358,
         2364, 2373, 2382, 2388, 2397, 2409, 2415, 2418, 2427, 2433, 2445, 2448, 2454, 2457, 2460, 2460};
     
+    int h_firstMarchingCubesId[257] = {
+        0, 0, 3, 6, 12, 15, 21, 27, 36, 39, 45, 51, 60, 66, 75, 84, 90, 93, 99, 105, 114,
+        120, 129, 138, 150, 156, 165, 174, 186, 195, 207, 219, 228, 231, 237, 243, 252, 258, 267, 276, 288,
+        294, 303, 312, 324, 333, 345, 357, 366, 372, 381, 390, 396, 405, 417, 429, 438, 447, 459, 471, 480,
+        492, 507, 522, 528, 531, 537, 543, 552, 558, 567, 576, 588, 594, 603, 612, 624, 633, 645, 657, 666,
+        672, 681, 690, 702, 711, 723, 735, 750, 759, 771, 783, 798, 810, 825, 840, 852, 858, 867, 876, 888,
+        897, 909, 915, 924, 933, 945, 957, 972, 984, 999, 1008, 1014, 1023, 1035, 1047, 1056, 1068, 1083, 1092, 1098,
+        1110, 1125, 1140, 1152, 1167, 1173, 1185, 1188, 1191, 1197, 1203, 1212, 1218, 1227, 1236, 1248, 1254, 1263, 1272, 1284,
+        1293, 1305, 1317, 1326, 1332, 1341, 1350, 1362, 1371, 1383, 1395, 1410, 1419, 1425, 1437, 1446, 1458, 1467, 1482, 1488,
+        1494, 1503, 1512, 1524, 1533, 1545, 1557, 1572, 1581, 1593, 1605, 1620, 1632, 1647, 1662, 1674, 1683, 1695, 1707, 1716,
+        1728, 1743, 1758, 1770, 1782, 1791, 1806, 1812, 1827, 1839, 1845, 1848, 1854, 1863, 1872, 1884, 1893, 1905, 1917, 1932,
+        1941, 1953, 1965, 1980, 1986, 1995, 2004, 2010, 2019, 2031, 2043, 2058, 2070, 2085, 2100, 2106, 2118, 2127, 2142, 2154,
+        2163, 2169, 2181, 2184, 2193, 2205, 2217, 2232, 2244, 2259, 2268, 2280, 2292, 2307, 2322, 2328, 2337, 2349, 2355, 2358,
+        2364, 2373, 2382, 2388, 2397, 2409, 2415, 2418, 2427, 2433, 2445, 2448, 2454, 2457, 2460, 2460};
+    
     __constant__ int marchingCubesIds[2460] = {
         0, 8, 3,
         0, 1, 9,
@@ -589,6 +604,7 @@ namespace mc {
 
         int threads = 256;
         int blocks = (n_cubes + threads - 1) / threads;
+        cudaSetDevice(device);
         
         // 0. Ensure we have enough storage for the cube codes and prefix sums
         this->ensure_grid_storage_size(n_cubes);
@@ -610,11 +626,18 @@ namespace mc {
         thrust::exclusive_scan(active_flag_iter, active_flag_iter + n_cubes, d_prefix_sum);
 
         // 6. Get the total number of active cubes from the last element of the prefix sum + last cube's active flag
-        IndexType last_flag;
+        uint8_t last_flag;
         IndexType last_sum;
         CHECK_CUDA(cudaMemcpy(&last_flag, this->cube_codes + n_cubes - 1, sizeof(uint8_t), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(&last_sum, this->temp_buffer + n_cubes - 1, sizeof(IndexType), cudaMemcpyDeviceToHost));
         this->n_used_cubes = last_sum + ((last_flag > 0 && last_flag < 255) ? 1 : 0);
+
+        if (this->n_used_cubes == 0) {
+            this->n_verts = 0;
+            this->n_tris = 0;
+            return;
+        }
+
         this->ensure_used_cube_storage_size(this->n_used_cubes);
         
         // 7. Run your Compaction Kernel to fill 'used_cube_index' with the indices of active cubes
@@ -681,15 +704,15 @@ namespace mc {
         thrust::exclusive_scan(tri_count_iter, tri_count_iter + this->n_used_cubes, d_tri_prefix_sum);
 
         // 15. Get total number of triangles
-        IndexType last_count;
         IndexType last_offset;
         uint8_t last_code;
-        CHECK_CUDA(cudaMemcpy(&last_code, this->used_cube_code + this->n_used_cubes - 1, 1, cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaMemcpy(&last_code, this->used_cube_code + this->n_used_cubes - 1, sizeof(uint8_t), cudaMemcpyDeviceToHost));
         CHECK_CUDA(cudaMemcpy(&last_offset, this->used_to_first_mc_tri + this->n_used_cubes - 1, sizeof(IndexType), cudaMemcpyDeviceToHost));
 
-        int mc_values[2];
-        CHECK_CUDA(cudaMemcpyFromSymbol(mc_values, firstMarchingCubesId, 2 * sizeof(int), (last_code) * sizeof(int)));
-        int last_tri_len = mc_values[1] - mc_values[0];
+        // int mc_values[2];
+        // CHECK_CUDA(cudaMemcpyFromSymbol(mc_values, firstMarchingCubesId, 2 * sizeof(int), (last_code) * sizeof(int)));
+        // int last_tri_len = mc_values[1] - mc_values[0];
+        int last_tri_len =  h_firstMarchingCubesId[last_code + 1] - h_firstMarchingCubesId[last_code];
         this->n_tris = last_offset + last_tri_len; // Total indices (divide by 3 for triangle count)
         this->ensure_tri_storage_size(this->n_tris);
 
@@ -704,18 +727,95 @@ namespace mc {
         CHECK_CUDA(cudaDeviceSynchronize());
     };
 
+    template <typename Scalar, typename IndexType>
+    __global__ void backward_dmc_kernel(
+        const long long* unique_edges,
+        const Scalar* grid_values,
+        const Vertex<Scalar>* grid_coords,
+        const Vertex<Scalar>* adj_verts,
+        IndexType n_verts,
+        Scalar iso,
+        Scalar* adj_values
+    ) {
+        int v_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (v_idx >= n_verts) return;
+
+        // 1. Decode the unique edge to find the two grid vertex parents
+        long long edge_sig = unique_edges[v_idx];
+        IndexType v0_idx = static_cast<IndexType>(edge_sig >> 32);
+        IndexType v1_idx = static_cast<IndexType>(edge_sig & 0xFFFFFFFF);
+
+        // 2. Fetch the data needed for the chain rule
+        Scalar v0_val = grid_values[v0_idx];
+        Scalar v1_val = grid_values[v1_idx];
+        Vertex<Scalar> p0 = grid_coords[v0_idx];
+        Vertex<Scalar> p1 = grid_coords[v1_idx];
+
+        Vertex<Scalar> grad_p_out = adj_verts[v_idx];
+
+        // 3. Adjoint Math (Derivative of Linear Interpolation)
+        Scalar diff = v1_val - v0_val;
+        if (diff * diff < Scalar(1e-14)) return;
+
+        // Project the 3D gradient onto the edge direction
+        Scalar dot_prod = (p1 - p0).dot(grad_p_out);
+        Scalar common = dot_prod / (diff * diff);
+
+        // Calculate how the scalar values at the endpoints affect the vertex position
+        Scalar grad_v0 = common * (iso - v1_val);
+        Scalar grad_v1 = common * (v0_val - iso);
+
+        // 4. Distribute the gradients back to the grid
+        // Multiple unique edges share the same grid vertex, so we MUST use atomicAdd
+        atomicAdd(&adj_values[v0_idx], grad_v0);
+        atomicAdd(&adj_values[v1_idx], grad_v1);
+    };
+
+    template <typename Scalar, typename IndexType>
+    void MC<Scalar, IndexType>::backward(
+        Vertex<Scalar> const *grid_vertices,
+        Scalar const *values,
+        Vertex<Scalar> const *adj_verts, // Input Gradient (Mesh)
+        Scalar *adj_values,              // Output Gradient (Grid Values)
+        Scalar iso,
+        int device
+    ) {
+        cudaSetDevice(device);
+        // If no vertices were generated, there are no gradients to propagate
+        if (this->n_verts == 0) return;
+        int threads = 256;
+        int blocks = (this->n_verts + threads - 1) / threads;
+        backward_dmc_kernel<<<blocks, threads>>>(
+            this->unique_edges,
+            values,
+            grid_vertices,
+            adj_verts,
+            this->n_verts,
+            iso,
+            adj_values
+        );
+
+        // Ensure the GPU finishes before returning to the framework
+        CHECK_CUDA(cudaDeviceSynchronize());
+    };
+
     template struct Vertex<float>;
-    template struct Vertex<double>;
+    // template struct Vertex<double>;
+    // template struct Vertex<__half>;
     template struct Triangle<int>;
 
-    template struct MC<double, int>;
+    // template struct MC<double, int>;
     template struct MC<float, int>;
+    // template struct MC<__half, int>;
 
     // Explicit template instantiation for kernel functions
-    template __global__ void identify_active_cubes_kernel<double, int>(
-        const int*, const double*, int, double, uint8_t*);
+
+    // template __global__ void identify_active_cubes_kernel<double, int>(
+    //     const int*, const double*, int, double, uint8_t*);
     template __global__ void identify_active_cubes_kernel<float, int>(
         const int*, const float*, int, float, uint8_t*);
+    // template __global__ void identify_active_cubes_kernel<__half, int>(
+    //     const int*, const __half*, int, __half, uint8_t*);
 
     template __global__ void compact_active_cubes_kernel<int>(
         const uint8_t*, const int*, int, int*, uint8_t*);
@@ -726,12 +826,19 @@ namespace mc {
     template __global__ void build_edge_map_kernel<int>(
         const int*, const int*, const long long*, int*, int, int);
 
-    template __global__ void interpolate_vertices_kernel<double, int>(
-        const long long*, const Vertex<double>*, const double*, int, double, Vertex<double>*);
+    // template __global__ void interpolate_vertices_kernel<double, int>(
+    //     const long long*, const Vertex<double>*, const double*, int, double, Vertex<double>*);
     template __global__ void interpolate_vertices_kernel<float, int>(
         const long long*, const Vertex<float>*, const float*, int, float, Vertex<float>*);
+    // template __global__ void interpolate_vertices_kernel<__half, int>(
+    //     const long long*, const Vertex<__half>*, const __half*, int, __half, Vertex<__half>*);
 
     template __global__ void assemble_triangles_kernel<int>(
         const uint8_t*, const int*, const int*, int, int*);
+
+    template __global__ void backward_dmc_kernel<float, int>(
+        const long long*, const float*, const Vertex<float>*, const Vertex<float>*, int, float, float*);
+    // template __global__ void backward_dmc_kernel<__half, int>(
+    //     const long long*, const __half*, const Vertex<__half>*, const Vertex<__half>*, int, __half, __half*);
 }
 

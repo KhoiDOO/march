@@ -145,11 +145,6 @@ namespace mc {
         __host__ void ensure_vert_storage_size(size_t n_verts);
         __host__ void ensure_tri_storage_size(size_t n_tris);
 
-        __host__ void setup_topology(
-            IndexType const *cubes, 
-            IndexType n_cubes
-        );
-
         __host__ void forward(
             Vertex<Scalar> const *grid_vertices, // N * 3 array of grid vertex positions
             IndexType const *cubes, // (N-1) * 8 array of cube vertex indices
@@ -159,7 +154,14 @@ namespace mc {
             int device
         );
 
-        __host__ void backward();
+        __host__ void backward(
+            Vertex<Scalar> const *grid_vertices,
+            Scalar const *values,
+            Vertex<Scalar> const *adj_verts,
+            Scalar *adj_values,
+            Scalar iso,
+            int device
+        );
 
         __host__ ~MC() {
             if (temp_buffer) cudaFree(temp_buffer);
