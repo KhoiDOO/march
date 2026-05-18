@@ -12,7 +12,8 @@ set(CMAKE_CUDA_COMPILER $ENV{CONDA_PREFIX}/bin/nvcc)
 set(CUDA_TOOLKIT_ROOT_DIR $ENV{CONDA_PREFIX}/targets/x86_64-linux)
 
 # Specify CUDA architectures (adjust based on your GPU)
-set(CMAKE_CUDA_ARCHITECTURES 52 61 70 75 80 86)
+# 89 = RTX 4090, includes native double atomics
+set(CMAKE_CUDA_ARCHITECTURES 52 61 70 75 80 86 89)
 
 # Add the executable
 add_executable(mc_forward
@@ -20,13 +21,26 @@ add_executable(mc_forward
     march/csrc/mc.cu
 )
 
+add_executable(mc_backward
+    examples/cuda/mc_backward.cu
+    march/csrc/mc.cu
+)
+
 # Link CUDA libraries
 target_link_libraries(mc_forward PRIVATE 
+    cudart
+)
+target_link_libraries(mc_backward PRIVATE 
     cudart
 )
 
 # Set CUDA architectures
 set_target_properties(mc_forward PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+)
+
+set_target_properties(mc_backward PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
@@ -37,7 +51,16 @@ target_include_directories(mc_forward PRIVATE
     ${CUDA_TOOLKIT_ROOT_DIR}/include
 )
 
+target_include_directories(mc_backward PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/march/csrc
+    ${CUDA_TOOLKIT_ROOT_DIR}/include
+)
+
 # Output directory
 set_target_properties(mc_forward PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+set_target_properties(mc_backward PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
