@@ -1,4 +1,5 @@
 #include "mc.h"
+#include "primitive.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -10,7 +11,6 @@
 #include <thrust/unique.h>
 #include <thrust/binary_search.h>
 #include <thrust/iterator/transform_iterator.h>
-
 
 namespace mc {
     bool check_cuda_result(cudaError_t code, const char *file, int line)
@@ -799,11 +799,6 @@ namespace mc {
         CHECK_CUDA(cudaDeviceSynchronize());
     };
 
-    template struct Vertex<float>;
-    // template struct Vertex<double>;
-    // template struct Vertex<__half>;
-    template struct Triangle<int>;
-
     // template struct MC<double, int>;
     template struct MC<float, int>;
     // template struct MC<__half, int>;
@@ -842,3 +837,7 @@ namespace mc {
     //     const long long*, const __half*, const Vertex<__half>*, const Vertex<__half>*, int, __half, __half*);
 }
 
+template struct primitive::Vertex<float>;
+// template struct primitive::Vertex<double>;
+// template struct primitive::Vertex<__half>;
+template struct primitive::Triangle<int>;

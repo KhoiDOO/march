@@ -1,5 +1,10 @@
+#include "primitive.h"
 #include <cstdint>
 #include <cuda_runtime.h>
+
+using primitive::Vertex;
+using primitive::Triangle;
+
 
 //  Coordinate system
 //
@@ -51,64 +56,6 @@
 //
 
 namespace mc {
-
-    template <typename T>
-    struct Vertex
-    {
-        T x, y, z;
-
-        inline __device__ __host__ T *data_ptr() { return &x; }
-
-        inline __device__ __host__ Vertex<T> operator+(Vertex<T> const &other) const {
-            return {x + other.x, y + other.y, z + other.z};
-        }
-        inline __device__ __host__ T dot(Vertex<T> const &other) const {
-            return x * other.x + y * other.y + z * other.z;
-        }
-
-        inline __device__ __host__ Vertex<T> operator-(Vertex<T> const &other) const {
-            return {x - other.x, y - other.y, z - other.z};
-        }
-
-        inline __device__ __host__ Vertex<T> operator*(Vertex<T> const &other) const {
-            return {x * other.x, y * other.y, z * other.z};
-        }
-
-        inline __device__ __host__ Vertex<T> operator*(T const &scalar) const {
-            return {x * scalar, y * scalar, z * scalar};
-        }
-
-        inline __device__ __host__ Vertex<T> operator/(T const &scalar) const {
-            return {x / scalar, y / scalar, z / scalar};
-        }
-
-        inline __device__ __host__ Vertex<T> &operator+=(Vertex<T> const &other) {
-            x += other.x;
-            y += other.y;
-            z += other.z;
-            return *this;
-        }
-
-        inline __device__ __host__ Vertex<T> &operator-=(Vertex<T> const &other) {
-            x -= other.x;
-            y -= other.y;
-            z -= other.z;
-            return *this;
-        }
-
-        inline __device__ __host__ Vertex<T> &operator*=(T const &scalar) {
-            x *= scalar;
-            y *= scalar;
-            z *= scalar;
-            return *this;
-        }
-    };
-
-    template <typename T>
-    struct Triangle {
-        T i, j, k;
-        inline __device__ __host__ T *data_ptr() { return &i; }
-    };
 
     template <typename Scalar, typename IndexType>
     struct MC {
