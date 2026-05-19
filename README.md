@@ -33,11 +33,11 @@ pip install imageio trimesh open3d tqdm matplotlib ninja
 
 # Differentiable Rendering
 ## Torch Scatter
-pip install torch-scatter -f https://data.pyg.org/whl/torch-2.11.0+cu128.html
+pip install torch-scatter -f https://data.pyg.org/whl/torch-2.8.0+cu128.html
 
 ## Nvdiffrast
 pip install setuptools wheel ninja
-TORCH_CUDA_ARCH_LIST="$(python -c 'import torch; major, minor = torch.cuda.get_device_capability(); print(f"sm_{major}{minor}")')" pip install git+https://github.com/NVlabs/nvdiffrast.git --no-build-isolation
+pip install git+https://github.com/NVlabs/nvdiffrast.git --no-build-isolation
 
 ## Kaolin
 pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
