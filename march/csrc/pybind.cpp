@@ -1,4 +1,6 @@
 #include "mc.h"
+#include "grid.h"
+#include "primitive.h"
 
 #include <torch/extension.h>
 #include <pybind11/pybind11.h>
@@ -28,19 +30,6 @@ namespace mc_wrapper {
         static_assert(std::is_same<IndexType, long>() || std::is_same<IndexType, int>());
 
     public:
-        // ~MC() {
-        //     // Destructor will automatically call the destructor of mc, which frees GPU memory
-        //     cudaDeviceSynchronize();
-        //     cudaFree(mc.temp_buffer);
-        //     cudaFree(mc.cube_codes);
-        //     cudaFree(mc.used_cube_code);
-        //     cudaFree(mc.used_cube_index);
-        //     cudaFree(mc.cube_edge_to_vert_idx);
-        //     cudaFree(mc.used_to_first_mc_tri);
-        //     cudaFree(mc.unique_edges);
-        //     cudaFree(mc.verts);
-        //     cudaFree(mc.tris);
-        // }
 
         std::tuple<torch::Tensor, torch::Tensor> forward(
             torch::Tensor grid_vertices, // N * 3 array of grid vertex positions
@@ -79,7 +68,7 @@ namespace mc_wrapper {
             TORCH_INTERNAL_ASSERT(cubes.dtype() == indexType, "cubes type must match the mc class");
 
             mc.forward(
-                reinterpret_cast<mc::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(grid_vertices)),
+                reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(grid_vertices)),
                 get_tensor_ptr_const<IndexType>(cubes),
                 get_tensor_ptr_const<Scalar>(values),
                 n_cubes,
@@ -144,9 +133,9 @@ namespace mc_wrapper {
             }
 
             mc.backward(
-                reinterpret_cast<mc::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(grid_vertices)),
+                reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(grid_vertices)),
                 get_tensor_ptr_const<Scalar>(values),
-                reinterpret_cast<mc::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(adj_verts)),
+                reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(adj_verts)),
                 get_tensor_ptr<Scalar>(adj_values),
                 iso,
                 device // device ID
@@ -155,11 +144,83 @@ namespace mc_wrapper {
     };
 }
 
+namespace grid_wrapper {
+    template <typename Scalar, typename IndexType>
+    std::tuple<torch::Tensor, torch::Tensor> pc_to_voxel_grid(
+        torch::Tensor points,
+        IndexType res_x,
+        IndexType res_y,
+        IndexType res_z,
+        int k_threshold
+    ) {
+        CHECK_INPUT(points);
+        int num_points = points.size(0);
+        int device = points.device().index();
+
+        torch::ScalarType scalarType;   
+        if constexpr (std::is_same<Scalar, float>()) {
+            scalarType = torch::kFloat;
+        } else {
+            scalarType = torch::kHalf;
+        }
+        TORCH_INTERNAL_ASSERT(points.dtype() == scalarType, "points type must match the passed template type");
+
+        torch::ScalarType indexType;
+        if constexpr (std::is_same<IndexType, int>()) {
+            indexType = torch::kInt;
+        } else {
+            indexType = torch::kLong;
+        }
+
+        primitive::Vertex<Scalar>* out_vertices = nullptr;
+        IndexType* out_cubes = nullptr;
+        IndexType out_num_vertices = 0;
+        IndexType out_num_cubes = 0;
+
+        grid::pc_to_voxel_grid<Scalar, IndexType>(
+            reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(points)),
+            num_points,
+            res_x,
+            res_y,
+            res_z,
+            k_threshold,
+            &out_vertices,
+            &out_num_vertices,
+            &out_cubes,
+            &out_num_cubes,
+            device
+        );
+
+        auto options_float = torch::TensorOptions().dtype(scalarType).device(points.device());
+        auto options_int = torch::TensorOptions().dtype(indexType).device(points.device());
+
+        torch::Tensor verts_tensor = torch::empty({0}, options_float);
+        torch::Tensor cubes_tensor = torch::empty({0}, options_int);
+
+        if (out_num_vertices > 0 && out_vertices != nullptr) {
+            verts_tensor = torch::from_blob(out_vertices, {out_num_vertices, 3}, options_float).clone();
+            cudaFree(out_vertices);
+        }
+
+        if (out_num_cubes > 0 && out_cubes != nullptr) {
+            cubes_tensor = torch::from_blob(out_cubes, {out_num_cubes, 8}, options_int).clone();
+            cudaFree(out_cubes);
+        }
+
+        return std::make_tuple(verts_tensor, cubes_tensor);
+    }
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     pybind11::class_<mc_wrapper::MC_Wrapper<float, int>>(m, "MCF")
         .def(pybind11::init<>())
         .def("forward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, float>(&mc_wrapper::MC_Wrapper<float, int>::forward))
         .def("backward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, float>(&mc_wrapper::MC_Wrapper<float, int>::backward));
+    
+    m.def("pc_to_voxel_grid", &grid_wrapper::pc_to_voxel_grid<float, int>, 
+          "Convert a point cloud to a sparse voxel grid.",
+          pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"));
+
     // pybind11::class_<mc_wrapper::MC_Wrapper<__half, int>>(m, "MCH")
     //     .def(pybind11::init<>())
     //     .def("forward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, __half>(&mc_wrapper::MC_Wrapper<__half, int>::forward))
