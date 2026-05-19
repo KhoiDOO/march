@@ -1,9 +1,12 @@
 #include "mc.h"
+#include "primitive.h"
 #include <iostream>
 #include <vector>
 #include <cmath>
 #include <fstream>
 
+using primitive::Vertex;
+using primitive::Triangle;
 using namespace mc;
 
 // Generate test data: 4 cubes with specific vertices and values
