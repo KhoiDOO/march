@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 
+from .._C import pc_to_voxel_grid as pc_to_voxel_grid_cuda
+
 
 def create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=torch.float32, device='cpu'):
     """
@@ -10,7 +12,7 @@ def create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=torch.float32, de
         res_x, res_y, res_z: Resolution (number of voxels) in each dimension
         bounds: Tuple of ((x_min, x_max), (y_min, y_max), (z_min, z_max))
         dtype: Data type for vertex coordinates (default: torch.float32)
-    
+        device: Device for tensor operations (default: 'cpu')
     Returns:
         grids: Tensor of shape (num_vertices, 3) containing vertex coordinates
         cubes: Tensor of shape (num_cubes, 8) containing vertex indices for each cube
@@ -136,7 +138,7 @@ def create_voxel_grid(res_x, res_y, res_z, bounds, dtype=np.float32, device='cpu
     else:
         return create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=dtype, device=device)
     
-def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk_size=10000):
+def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk_size=10000, margin_ratio=0.0):
     """
     Drop grid vertices and cubes, that are not intersecting with the mesh.
     
@@ -145,6 +147,8 @@ def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk
         grid_cubes: Tensor of shape (num_cubes, 8) containing vertex indices for each cube
         mesh_vertices: Tensor of shape (num_mesh_vertices, 3) containing mesh vertex coordinates
         mesh_faces: Tensor of shape (num_mesh_faces, 3) containing indices of vertices for each face
+        chunk_size: Size of chunks for processing to prevent OOM (default: 10000)
+        margin_ratio: Ratio to expand bounding boxes. margin = margin_ratio * (max - min) (default: 0.0, no expansion)
     Returns:
         drop_grid_vertices: Tensor of shape (num_dropped_vertices, 3) containing dropped vertex coordinates
         drop_grid_cubes: Tensor of shape (num_dropped_cubes, 8) containing vertex indices for each dropped cube
@@ -156,11 +160,23 @@ def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk
     # Using v0 for min and v7 for max based on standard offset creation logic in `create_voxel_grid`
     cube_min = grid_vertices[grid_cubes[:, 0]]
     cube_max = grid_vertices[grid_cubes[:, 7]]
+    
+    # Apply margin to cube bounding boxes
+    if margin_ratio > 0.0:
+        cube_margin = margin_ratio * (cube_max - cube_min)
+        cube_min = cube_min - cube_margin
+        cube_max = cube_max + cube_margin
 
     # 2. Find bounding boxes for each mesh triangle
     triangles = mesh_vertices[mesh_faces]  # (num_faces, 3, 3)
     tri_min = triangles.min(dim=1)[0]      # (num_faces, 3)
     tri_max = triangles.max(dim=1)[0]      # (num_faces, 3)
+    
+    # Apply margin to triangle bounding boxes
+    if margin_ratio > 0.0:
+        tri_margin = margin_ratio * (tri_max - tri_min)
+        tri_min = tri_min - tri_margin
+        tri_max = tri_max + tri_margin
 
     num_cubes = grid_cubes.shape[0]
     num_faces = mesh_faces.shape[0]
@@ -192,3 +208,18 @@ def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk
     drop_grid_cubes = inverse_indices.reshape(drop_grid_cubes.shape)
         
     return drop_grid_vertices, drop_grid_cubes, unique_vertex_indices
+
+def pc_to_voxel_grid(points, res_x, res_y, res_z, k_threshold=1):
+    """
+    Convert a point cloud to a sparse voxel grid.
+    
+    Args:
+        points: Tensor of shape (num_points, 3) containing point cloud coordinates
+        res_x, res_y, res_z: Resolution (number of voxels) in each dimension
+        k_threshold: Minimum number of points required in a voxel to be considered occupied (default: 1)
+    
+    Returns:
+        voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
+        voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
+    """
+    return pc_to_voxel_grid_cuda(points, res_x, res_y, res_z, k_threshold)
