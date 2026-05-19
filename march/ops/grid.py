@@ -135,3 +135,60 @@ def create_voxel_grid(res_x, res_y, res_z, bounds, dtype=np.float32, device='cpu
         return create_voxel_grid_numpy(res_x, res_y, res_z, bounds, dtype=dtype)
     else:
         return create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=dtype, device=device)
+    
+def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk_size=10000):
+    """
+    Drop grid vertices and cubes, that are not intersecting with the mesh.
+    
+    Args:
+        grid_vertices: Tensor of shape (num_vertices, 3) containing vertex coordinates
+        grid_cubes: Tensor of shape (num_cubes, 8) containing vertex indices for each cube
+        mesh_vertices: Tensor of shape (num_mesh_vertices, 3) containing mesh vertex coordinates
+        mesh_faces: Tensor of shape (num_mesh_faces, 3) containing indices of vertices for each face
+    Returns:
+        drop_grid_vertices: Tensor of shape (num_dropped_vertices, 3) containing dropped vertex coordinates
+        drop_grid_cubes: Tensor of shape (num_dropped_cubes, 8) containing vertex indices for each dropped cube
+    """
+    
+    device = grid_vertices.device
+    
+    # 1. Find bounding boxes for each cube
+    # Using v0 for min and v7 for max based on standard offset creation logic in `create_voxel_grid`
+    cube_min = grid_vertices[grid_cubes[:, 0]]
+    cube_max = grid_vertices[grid_cubes[:, 7]]
+
+    # 2. Find bounding boxes for each mesh triangle
+    triangles = mesh_vertices[mesh_faces]  # (num_faces, 3, 3)
+    tri_min = triangles.min(dim=1)[0]      # (num_faces, 3)
+    tri_max = triangles.max(dim=1)[0]      # (num_faces, 3)
+
+    num_cubes = grid_cubes.shape[0]
+    num_faces = mesh_faces.shape[0]
+    active_cubes_mask = torch.zeros(num_cubes, dtype=torch.bool, device=device)
+
+    # 3. Check for AABB Bounding Box collisions in chunks to prevent OOM
+    for i in range(0, num_faces, chunk_size):
+        chunk_tri_min = tri_min[i : i + chunk_size].unsqueeze(0)  # (1, chunk, 3)
+        chunk_tri_max = tri_max[i : i + chunk_size].unsqueeze(0)  # (1, chunk, 3)
+        
+        # Bounding boxes overlap if (A.min <= B.max) and (A.max >= B.min) across all 3 dimensions
+        overlap = (cube_min.unsqueeze(1) < chunk_tri_max) & \
+                  (cube_max.unsqueeze(1) > chunk_tri_min)
+        
+        overlap = overlap.all(dim=-1)       # True if x, y, and z all overlap
+        
+        # If the cube overlaps with ANY face in this chunk, mark it as active
+        active_cubes_mask |= overlap.any(dim=1)
+
+    # Filter out inactive cubes
+    drop_grid_cubes = grid_cubes[active_cubes_mask]
+    
+    # 4. Remove unused vertices and remap the indices
+    unique_vertex_indices, inverse_indices = torch.unique(drop_grid_cubes, return_inverse=True)
+    
+    inverse_indices = inverse_indices.to(drop_grid_cubes.dtype)
+    
+    drop_grid_vertices = grid_vertices[unique_vertex_indices]
+    drop_grid_cubes = inverse_indices.reshape(drop_grid_cubes.shape)
+        
+    return drop_grid_vertices, drop_grid_cubes, unique_vertex_indices
