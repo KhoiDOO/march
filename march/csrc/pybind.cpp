@@ -16,10 +16,26 @@ namespace py = pybind11;
 
 // Helper functions to convert between PyTorch tensors and raw pointers
 template <typename T>
-T* get_tensor_ptr(torch::Tensor& tensor) { return tensor.data_ptr<T>(); }
+T* get_tensor_ptr(torch::Tensor& tensor) { 
+    if constexpr (std::is_same<T, int>()) {
+        return reinterpret_cast<T*>(tensor.data_ptr<int32_t>());
+    } else if constexpr (std::is_same<T, long>() || std::is_same<T, long long>()) {
+        return reinterpret_cast<T*>(tensor.data_ptr<int64_t>());
+    } else {
+        return tensor.data_ptr<T>(); 
+    }
+}
 
 template <typename T>
-const T* get_tensor_ptr_const(const torch::Tensor& tensor) { return tensor.data_ptr<T>(); }
+const T* get_tensor_ptr_const(const torch::Tensor& tensor) { 
+    if constexpr (std::is_same<T, int>()) {
+        return reinterpret_cast<const T*>(tensor.data_ptr<int32_t>());
+    } else if constexpr (std::is_same<T, long>() || std::is_same<T, long long>()) {
+        return reinterpret_cast<const T*>(tensor.data_ptr<int64_t>());
+    } else {
+        return tensor.data_ptr<T>(); 
+    }
+}
 
 namespace mc_wrapper {
     template <typename Scalar, typename IndexType>
@@ -27,7 +43,7 @@ namespace mc_wrapper {
         mc::MC<Scalar, IndexType> mc;
 
         static_assert(std::is_same<Scalar, float>() || std::is_same<Scalar, __half>());
-        static_assert(std::is_same<IndexType, long>() || std::is_same<IndexType, int>());
+        static_assert(std::is_same<IndexType, long>() || std::is_same<IndexType, long long>() || std::is_same<IndexType, int>());
 
     public:
 
@@ -41,7 +57,7 @@ namespace mc_wrapper {
             CHECK_INPUT(cubes);
             CHECK_INPUT(values);
 
-            int n_cubes = cubes.size(0);
+            IndexType n_cubes = cubes.size(0);
             int device = grid_vertices.device().index();
 
             torch::ScalarType scalarType;   
@@ -76,8 +92,8 @@ namespace mc_wrapper {
                 device // device ID
             );
 
-            int n_verts = mc.n_verts;
-            int n_tris = mc.n_tris / 3;
+            IndexType n_verts = mc.n_verts;
+            IndexType n_tris = mc.n_tris / 3;
 
             auto options_float = torch::TensorOptions().dtype(scalarType).device(grid_vertices.device());
             auto options_int = torch::TensorOptions().dtype(indexType).device(cubes.device());
@@ -156,7 +172,7 @@ namespace grid_wrapper {
         float r
     ) {
         CHECK_INPUT(points);
-        int num_points = points.size(0);
+        IndexType num_points = points.size(0);
         int device = points.device().index();
 
         torch::ScalarType scalarType;   
@@ -216,7 +232,8 @@ namespace grid_wrapper {
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    pybind11::class_<mc_wrapper::MC_Wrapper<float, int>>(m, "MCF")
+    // 32 bit version
+    pybind11::class_<mc_wrapper::MC_Wrapper<float, int>>(m, "MCFI")
         .def(pybind11::init<>())
         .def("forward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, float>(&mc_wrapper::MC_Wrapper<float, int>::forward))
         .def("backward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, float>(&mc_wrapper::MC_Wrapper<float, int>::backward));
@@ -225,8 +242,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Convert a point cloud to a sparse voxel grid.",
           pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"), pybind11::arg("num_keep"), pybind11::arg("r"));
 
-    // pybind11::class_<mc_wrapper::MC_Wrapper<__half, int>>(m, "MCH")
-    //     .def(pybind11::init<>())
-    //     .def("forward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, __half>(&mc_wrapper::MC_Wrapper<__half, int>::forward))
-    //     .def("backward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, __half>(&mc_wrapper::MC_Wrapper<__half, int>::backward));
+    // 64 bit version
+    pybind11::class_<mc_wrapper::MC_Wrapper<float, long long>>(m, "MCFL")
+        .def(pybind11::init<>())
+        .def("forward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, float>(&mc_wrapper::MC_Wrapper<float, long long>::forward))
+        .def("backward", pybind11::overload_cast<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, float>(&mc_wrapper::MC_Wrapper<float, long long>::backward));
+
+    m.def("pc_to_voxel_grid_long", &grid_wrapper::pc_to_voxel_grid<float, long long>, 
+          "Convert a massive point cloud to a sparse voxel grid using 64-bit indices.",
+          pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"), pybind11::arg("num_keep"), pybind11::arg("r"));
 }
