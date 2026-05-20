@@ -52,7 +52,10 @@ int main() {
     int* d_out_cubes = nullptr;
     int out_num_cubes = 0;
 
-    // Call the voxelization function (explicit instantiation exists for float,int)
+    // Call the voxelization function (explicit instantiation exists for float, int)
+
+    std::cout << "Calling pc_to_voxel_grid (explicit instantiation for float, int)\n";
+
     grid::pc_to_voxel_grid<float,int>(
         d_points, n_points,
         res_x, res_y, res_z,
@@ -93,10 +96,33 @@ int main() {
 
     std::cout << "Wrote pc_to_voxel_grid_output.obj\n";
 
+    // Call the voxelization function (explicit instantiation exists for float, long long)
+
+    std::cout << "Calling pc_to_voxel_grid (explicit instantiation for float, long long)\n";
+
+    Vertex<float>* d_out_vertices_ll = nullptr;
+    long long out_num_vertices_ll = 0;
+    long long* d_out_cubes_ll = nullptr;
+    long long out_num_cubes_ll = 0;
+
+    grid::pc_to_voxel_grid<float,long long>(
+        d_points, n_points,
+        res_x, res_y, res_z,
+        k_threshold, num_keep, r,
+        &d_out_vertices_ll, &out_num_vertices_ll,
+        &d_out_cubes_ll, &out_num_cubes_ll,
+        device
+    );
+
+    std::cout << "Output vertices (long long): " << out_num_vertices_ll << "\n";
+    std::cout << "Output cubes (long long): " << out_num_cubes_ll << "\n";
+
     // Cleanup
     cudaFree(d_points);
     if (d_out_vertices) cudaFree(d_out_vertices);
     if (d_out_cubes) cudaFree(d_out_cubes);
+    if (d_out_vertices_ll) cudaFree(d_out_vertices_ll);
+    if (d_out_cubes_ll) cudaFree(d_out_cubes_ll);
 
     std::cout << "=== Done ===\n";
     return 0;
