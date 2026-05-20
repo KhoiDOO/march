@@ -38,10 +38,20 @@ namespace grid {
         if (idx >= num_points) return;
 
         Vertex<Scalar> p = points[idx];
+
+        Scalar fi = (p.x - min_x) / cx;
+        Scalar fj = (p.y - min_y) / cy;
+        Scalar fk = (p.z - min_z) / cz;
+
+        if (fi < 0 || fi >= (Scalar)res_x ||
+            fj < 0 || fj >= (Scalar)res_y ||
+            fk < 0 || fk >= (Scalar)res_z) {
+                return;
+            }
         
-        IndexType i = min(max((IndexType)((p.x - min_x) / cx), (IndexType)0), res_x - 1);
-        IndexType j = min(max((IndexType)((p.y - min_y) / cy), (IndexType)0), res_y - 1);
-        IndexType k = min(max((IndexType)((p.z - min_z) / cz), (IndexType)0), res_z - 1);
+        IndexType i = min(max((IndexType)fi, (IndexType)0), res_x - 1);
+        IndexType j = min(max((IndexType)fj, (IndexType)0), res_y - 1);
+        IndexType k = min(max((IndexType)fk, (IndexType)0), res_z - 1);
 
         IndexType voxel_idx = k * (res_y * res_x) + j * res_x + i;
         atomicAdd(&voxel_counts[voxel_idx], 1);
@@ -214,6 +224,14 @@ namespace grid {
         thrust::device_ptr<const Vertex<Scalar>> d_pts(points);
         BBox<Scalar> bbox = thrust::transform_reduce(
             d_pts, d_pts + num_points, PointToBBox<Scalar>(), init_box, BBoxReduce<Scalar>());
+        
+        // Apply the truncation factor 'r' to the bounding box
+        bbox.min_pt.x *= r;
+        bbox.min_pt.y *= r;
+        bbox.min_pt.z *= r;
+        bbox.max_pt.x *= r;
+        bbox.max_pt.y *= r;
+        bbox.max_pt.z *= r;
 
         Scalar cx = (bbox.max_pt.x - bbox.min_pt.x) / (Scalar)res_x;
         Scalar cy = (bbox.max_pt.y - bbox.min_pt.y) / (Scalar)res_y;
