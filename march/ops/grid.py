@@ -139,7 +139,7 @@ def create_voxel_grid(res_x, res_y, res_z, bounds, dtype=np.float32, device='cpu
     else:
         return create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=dtype, device=device)
 
-def pc_to_voxel_grid(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
+def pc_to_voxel_grid(points, res_x, res_y, res_z, k=1, num_keep=0, rmi_x=1.0, rmi_y=1.0, rmi_z=1.0, rma_x=1.0, rma_y=1.0, rma_z=1.0):
     """
     Convert a point cloud to a sparse voxel grid.
     
@@ -148,15 +148,16 @@ def pc_to_voxel_grid(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
         res_x, res_y, res_z: Resolution (number of voxels) in each dimension
         k: Minimum number of points required in a voxel to be considered occupied (default: 1)
         num_keep: Number of adjacent voxels to dilate and keep (default: 0)
-        r: keep ratio for considering points as belonging to a voxel (default: 1.0)
+        rmi_x, rmi_y, rmi_z: Minimum keeping ratio of the minimum bounding box
+        rma_x, rma_y, rma_z: Maximum keeping ratio of the maximum bounding box
 
     Returns:
         voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
         voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
     """
-    return pc_to_voxel_grid_cuda(points, res_x, res_y, res_z, k, num_keep, r)
+    return pc_to_voxel_grid_cuda(points, res_x, res_y, res_z, k, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z)
 
-def pc_to_voxel_grid_long(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
+def pc_to_voxel_grid_long(points, res_x, res_y, res_z, k=1, num_keep=0, rmi_x=1.0, rmi_y=1.0, rmi_z=1.0, rma_x=1.0, rma_y=1.0, rma_z=1.0):
     """
     Convert a point cloud to a sparse voxel grid, using 64-bit indices.
     
@@ -165,10 +166,11 @@ def pc_to_voxel_grid_long(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
         res_x, res_y, res_z: Resolution (number of voxels) in each dimension
         k: Minimum number of points required in a voxel to be considered occupied (default: 1)
         num_keep: Number of adjacent voxels to dilate and keep (default: 0)
-        r: keep ratio for considering points as belonging to a voxel (default: 1.0)
+        rmi_x, rmi_y, rmi_z: Minimum keeping ratio of the minimum bounding box
+        rma_x, rma_y, rma_z: Maximum keeping ratio of the maximum bounding box
 
     Returns:
         voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
         voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
     """
-    return pc_to_voxel_grid_long_cuda(points, res_x, res_y, res_z, k, num_keep, r)
+    return pc_to_voxel_grid_long_cuda(points, res_x, res_y, res_z, k, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z)
