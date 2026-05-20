@@ -2,6 +2,7 @@ import torch
 import numpy as np
 
 from .._C import pc_to_voxel_grid as pc_to_voxel_grid_cuda
+from .._C import pc_to_voxel_grid_long as pc_to_voxel_grid_long_cuda
 
 
 def create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=torch.float32, device='cpu'):
@@ -137,77 +138,6 @@ def create_voxel_grid(res_x, res_y, res_z, bounds, dtype=np.float32, device='cpu
         return create_voxel_grid_numpy(res_x, res_y, res_z, bounds, dtype=dtype)
     else:
         return create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=dtype, device=device)
-    
-def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk_size=10000, margin_ratio=0.0):
-    """
-    Drop grid vertices and cubes, that are not intersecting with the mesh.
-    
-    Args:
-        grid_vertices: Tensor of shape (num_vertices, 3) containing vertex coordinates
-        grid_cubes: Tensor of shape (num_cubes, 8) containing vertex indices for each cube
-        mesh_vertices: Tensor of shape (num_mesh_vertices, 3) containing mesh vertex coordinates
-        mesh_faces: Tensor of shape (num_mesh_faces, 3) containing indices of vertices for each face
-        chunk_size: Size of chunks for processing to prevent OOM (default: 10000)
-        margin_ratio: Ratio to expand bounding boxes. margin = margin_ratio * (max - min) (default: 0.0, no expansion)
-    Returns:
-        drop_grid_vertices: Tensor of shape (num_dropped_vertices, 3) containing dropped vertex coordinates
-        drop_grid_cubes: Tensor of shape (num_dropped_cubes, 8) containing vertex indices for each dropped cube
-    """
-    
-    device = grid_vertices.device
-    
-    # 1. Find bounding boxes for each cube
-    # Using v0 for min and v7 for max based on standard offset creation logic in `create_voxel_grid`
-    cube_min = grid_vertices[grid_cubes[:, 0]]
-    cube_max = grid_vertices[grid_cubes[:, 7]]
-    
-    # Apply margin to cube bounding boxes
-    if margin_ratio > 0.0:
-        cube_margin = margin_ratio * (cube_max - cube_min)
-        cube_min = cube_min - cube_margin
-        cube_max = cube_max + cube_margin
-
-    # 2. Find bounding boxes for each mesh triangle
-    triangles = mesh_vertices[mesh_faces]  # (num_faces, 3, 3)
-    tri_min = triangles.min(dim=1)[0]      # (num_faces, 3)
-    tri_max = triangles.max(dim=1)[0]      # (num_faces, 3)
-    
-    # Apply margin to triangle bounding boxes
-    if margin_ratio > 0.0:
-        tri_margin = margin_ratio * (tri_max - tri_min)
-        tri_min = tri_min - tri_margin
-        tri_max = tri_max + tri_margin
-
-    num_cubes = grid_cubes.shape[0]
-    num_faces = mesh_faces.shape[0]
-    active_cubes_mask = torch.zeros(num_cubes, dtype=torch.bool, device=device)
-
-    # 3. Check for AABB Bounding Box collisions in chunks to prevent OOM
-    for i in range(0, num_faces, chunk_size):
-        chunk_tri_min = tri_min[i : i + chunk_size].unsqueeze(0)  # (1, chunk, 3)
-        chunk_tri_max = tri_max[i : i + chunk_size].unsqueeze(0)  # (1, chunk, 3)
-        
-        # Bounding boxes overlap if (A.min <= B.max) and (A.max >= B.min) across all 3 dimensions
-        overlap = (cube_min.unsqueeze(1) < chunk_tri_max) & \
-                  (cube_max.unsqueeze(1) > chunk_tri_min)
-        
-        overlap = overlap.all(dim=-1)       # True if x, y, and z all overlap
-        
-        # If the cube overlaps with ANY face in this chunk, mark it as active
-        active_cubes_mask |= overlap.any(dim=1)
-
-    # Filter out inactive cubes
-    drop_grid_cubes = grid_cubes[active_cubes_mask]
-    
-    # 4. Remove unused vertices and remap the indices
-    unique_vertex_indices, inverse_indices = torch.unique(drop_grid_cubes, return_inverse=True)
-    
-    inverse_indices = inverse_indices.to(drop_grid_cubes.dtype)
-    
-    drop_grid_vertices = grid_vertices[unique_vertex_indices]
-    drop_grid_cubes = inverse_indices.reshape(drop_grid_cubes.shape)
-        
-    return drop_grid_vertices, drop_grid_cubes, unique_vertex_indices
 
 def pc_to_voxel_grid(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
     """
@@ -225,3 +155,20 @@ def pc_to_voxel_grid(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
         voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
     """
     return pc_to_voxel_grid_cuda(points, res_x, res_y, res_z, k, num_keep, r)
+
+def pc_to_voxel_grid_long(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
+    """
+    Convert a point cloud to a sparse voxel grid, using 64-bit indices.
+    
+    Args:
+        points: Tensor of shape (num_points, 3) containing point cloud coordinates
+        res_x, res_y, res_z: Resolution (number of voxels) in each dimension
+        k: Minimum number of points required in a voxel to be considered occupied (default: 1)
+        num_keep: Number of adjacent voxels to dilate and keep (default: 0)
+        r: keep ratio for considering points as belonging to a voxel (default: 1.0)
+
+    Returns:
+        voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
+        voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
+    """
+    return pc_to_voxel_grid_long_cuda(points, res_x, res_y, res_z, k, num_keep, r)
