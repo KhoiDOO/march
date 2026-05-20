@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "march"
-version = "0.0.6"
+version = "0.0.7"
 description = "Marching Cubes algorithm implementation for extracting meshes from scalar fields using PyTorch"
 readme = "README.md"
 license = {text = "MIT"}
@@ -45,9 +45,11 @@ Documentation = "https://github.com/KhoiDOO/march#readme"
 Issues = "https://github.com/KhoiDOO/march/issues"
 
 [tool.setuptools]
-packages = ["march", "march.pyt"]
+packages = ["march", "march.pyt", "march.module", "march.ops"]
 
 [tool.setuptools.package-data]
+include = ["march*"]
+exclude = ["examples*", "tests*"]
 march = ["py.typed"]
 
 [tool.black]
