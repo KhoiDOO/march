@@ -3,27 +3,21 @@
 #include <cuda_runtime.h>
 #include <iostream>
 #include <vector>
+#include <random>
 #include <fstream>
 
 using primitive::Vertex;
 using namespace grid;
 
-// Generate a simple point cloud that covers a small block of voxels
-void generate_test_points(std::vector<Vertex<float>>& points) {
-    points = {
-        {0.1f, 0.1f, 0.1f},
-        {0.9f, 0.1f, 0.1f},
-        {0.1f, 0.9f, 0.1f},
-        {0.9f, 0.9f, 0.1f},
-        {0.1f, 0.1f, 0.9f},
-        {0.9f, 0.1f, 0.9f},
-        {0.1f, 0.9f, 0.9f},
-        {0.9f, 0.9f, 0.9f},
-        // some additional points to populate neighbouring voxels
-        {1.5f, 0.5f, 0.5f},
-        {2.5f, 1.5f, 0.5f},
-        {0.5f, 2.5f, 1.5f}
-    };
+// Generate a random point cloud inside [0, span) for each axis
+void generate_test_points(std::vector<Vertex<float>>& points, int n_points, float span=1024.0f, unsigned int seed=42u) {
+    points.clear();
+    points.reserve(n_points);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(0.0f, span);
+    for (int i = 0; i < n_points; ++i) {
+        points.push_back({dist(rng), dist(rng), dist(rng)});
+    }
 }
 
 int main() {
@@ -32,16 +26,16 @@ int main() {
     int device = 0;
     cudaSetDevice(device);
 
-    // Parameters for voxelization
-    int res_x = 4, res_y = 4, res_z = 4;
+    // Parameters for voxelization (large test)
+    int res_x = 128, res_y = 128, res_z = 128;
     int k_threshold = 1;
     int num_keep = 0;
     float r = 1.0f; // bounding-box truncation / scaling factor
 
-    // Prepare host points
+    // Prepare host points (100k random samples over the 0..1024 cube)
+    const int n_points = 100000;
     std::vector<Vertex<float>> h_points;
-    generate_test_points(h_points);
-    int n_points = (int)h_points.size();
+    generate_test_points(h_points, n_points, 1024.0f, 42u);
 
     std::cout << "Num input points: " << n_points << "\n";
 
@@ -49,6 +43,8 @@ int main() {
     Vertex<float>* d_points = nullptr;
     cudaMalloc(&d_points, n_points * sizeof(Vertex<float>));
     cudaMemcpy(d_points, h_points.data(), n_points * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
+
+    std::cout << "Copied points to device\n";
 
     // Outputs (device pointers will be allocated inside the function)
     Vertex<float>* d_out_vertices = nullptr;
