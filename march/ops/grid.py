@@ -209,18 +209,19 @@ def drop_grid_w_mesh(grid_vertices, grid_cubes, mesh_vertices, mesh_faces, chunk
         
     return drop_grid_vertices, drop_grid_cubes, unique_vertex_indices
 
-def pc_to_voxel_grid(points, res_x, res_y, res_z, k_threshold=1, num_keep=0):
+def pc_to_voxel_grid(points, res_x, res_y, res_z, k=1, num_keep=0, r=1.0):
     """
     Convert a point cloud to a sparse voxel grid.
     
     Args:
         points: Tensor of shape (num_points, 3) containing point cloud coordinates
         res_x, res_y, res_z: Resolution (number of voxels) in each dimension
-        k_threshold: Minimum number of points required in a voxel to be considered occupied (default: 1)
+        k: Minimum number of points required in a voxel to be considered occupied (default: 1)
         num_keep: Number of adjacent voxels to dilate and keep (default: 0)
-    
+        r: keep ratio for considering points as belonging to a voxel (default: 1.0)
+
     Returns:
         voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
         voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
     """
-    return pc_to_voxel_grid_cuda(points, res_x, res_y, res_z, k_threshold, num_keep)
+    return pc_to_voxel_grid_cuda(points, res_x, res_y, res_z, k, num_keep, r)
