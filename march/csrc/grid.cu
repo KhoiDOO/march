@@ -199,6 +199,7 @@ namespace grid {
         IndexType res_z, 
         int k_threshold,
         int num_keep,
+        float r,
         Vertex<Scalar>** out_vertices,
         IndexType* out_num_vertices,
         IndexType** out_cubes,
@@ -284,7 +285,7 @@ namespace grid {
     // Explicit template instantiations
     template void pc_to_voxel_grid<float, int>(
         Vertex<float> const *points, int num_points,
-        int res_x, int res_y, int res_z, int k_threshold, int num_keep,
+        int res_x, int res_y, int res_z, int k_threshold, int num_keep, float r,
         Vertex<float>** out_vertices, int* out_num_vertices,
         int** out_cubes, int* out_num_cubes,
         int device
