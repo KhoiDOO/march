@@ -25,6 +25,12 @@ namespace grid {
         }
     };
 
+    template <typename IndexType>
+    struct ThresholdOp {
+        int threshold;
+        __host__ __device__ IndexType operator()(IndexType count) const { return count >= (IndexType)threshold ? 1 : 0; }
+    };
+
     template <typename Scalar, typename IndexType>
     __global__ void count_points_in_voxels_kernel(
         const Vertex<Scalar>* points,
@@ -32,7 +38,7 @@ namespace grid {
         Scalar min_x, Scalar min_y, Scalar min_z,
         Scalar cx, Scalar cy, Scalar cz,
         IndexType res_x, IndexType res_y, IndexType res_z,
-        int* voxel_counts
+        IndexType* voxel_counts
     ) {
         IndexType idx = blockIdx.x * blockDim.x + threadIdx.x;
         if (idx >= num_points) return;
@@ -54,14 +60,18 @@ namespace grid {
         IndexType k = min(max((IndexType)fk, (IndexType)0), res_z - 1);
 
         IndexType voxel_idx = k * (res_y * res_x) + j * res_x + i;
-        atomicAdd(&voxel_counts[voxel_idx], 1);
+        if constexpr (sizeof(IndexType) == 8) {
+            atomicAdd((unsigned long long*)&voxel_counts[voxel_idx], 1ULL);
+        } else {
+            atomicAdd((unsigned int*)&voxel_counts[voxel_idx], 1U);
+        }
     }
 
     template <typename IndexType>
     __global__ void mark_active_vertices_kernel(
-        const int* voxel_active_flags,
+        const IndexType* voxel_active_flags,
         IndexType res_x, IndexType res_y, IndexType res_z,
-        int* active_vertices
+        IndexType* active_vertices
     ) {
         IndexType voxel_idx = blockIdx.x * blockDim.x + threadIdx.x;
         IndexType total_voxels = res_x * res_y * res_z;
@@ -89,8 +99,8 @@ namespace grid {
 
     template <typename Scalar, typename IndexType>
     __global__ void generate_sparse_vertices_kernel(
-        const int* active_vertices,
-        const int* vertex_prefix_sum,
+        const IndexType* active_vertices,
+        const IndexType* vertex_prefix_sum,
         Vertex<Scalar>* out_vertices,
         Scalar min_x, Scalar min_y, Scalar min_z,
         Scalar cx, Scalar cy, Scalar cz,
@@ -120,8 +130,8 @@ namespace grid {
 
     template <typename IndexType>
     __global__ void dilate_voxels_kernel(
-        const int* voxel_active_in,
-        int* voxel_active_out,
+        const IndexType* voxel_active_in,
+        IndexType* voxel_active_out,
         IndexType res_x, IndexType res_y, IndexType res_z,
         int num_keep
     ) {
@@ -160,9 +170,9 @@ namespace grid {
 
     template <typename IndexType>
     __global__ void generate_sparse_cubes_kernel(
-        const int* voxel_active_flags,
-        const int* cube_prefix_sum,
-        const int* vertex_prefix_sum,
+        const IndexType* voxel_active_flags,
+        const IndexType* cube_prefix_sum,
+        const IndexType* vertex_prefix_sum,
         IndexType* out_cubes,
         IndexType res_x, IndexType res_y, IndexType res_z
     ) {
@@ -194,11 +204,6 @@ namespace grid {
             }
         }
     }
-
-    struct ThresholdOp {
-        int threshold;
-        __host__ __device__ int operator()(int count) const { return count >= threshold ? 1 : 0; }
-    };
 
     template <typename Scalar, typename IndexType>
     void pc_to_voxel_grid(
@@ -240,11 +245,11 @@ namespace grid {
         IndexType total_voxels = res_x * res_y * res_z;
         IndexType total_dense_verts = (res_x + 1) * (res_y + 1) * (res_z + 1);
 
-        int threads = 256;
+        IndexType threads = 256;
 
         // 2. Count points inside Voxels
-        thrust::device_vector<int> voxel_counts(total_voxels, 0);
-        int blocks = (num_points + threads - 1) / threads;
+        thrust::device_vector<IndexType> voxel_counts(total_voxels, 0);
+        IndexType blocks = (num_points + threads - 1) / threads;
         count_points_in_voxels_kernel<<<blocks, threads>>>(
             points, num_points, 
             bbox.min_pt.x, bbox.min_pt.y, bbox.min_pt.z, cx, cy, cz, 
@@ -252,10 +257,10 @@ namespace grid {
         );
 
         // 3. Dilate the active regions
-        thrust::device_vector<int> active_voxel_flags_in(total_voxels);
-        thrust::transform(voxel_counts.begin(), voxel_counts.end(), active_voxel_flags_in.begin(), ThresholdOp{k_threshold});
+        thrust::device_vector<IndexType> active_voxel_flags_in(total_voxels, 0);
+        thrust::transform(voxel_counts.begin(), voxel_counts.end(), active_voxel_flags_in.begin(), ThresholdOp<IndexType>{k_threshold});
 
-        thrust::device_vector<int> active_voxel_flags(total_voxels);
+        thrust::device_vector<IndexType> active_voxel_flags(total_voxels, 0);
         blocks = (total_voxels + threads - 1) / threads;
         dilate_voxels_kernel<<<blocks, threads>>>(
             thrust::raw_pointer_cast(active_voxel_flags_in.data()),
@@ -264,21 +269,21 @@ namespace grid {
         );
 
         // 4. Mark the active vertices
-        thrust::device_vector<int> active_vertices(total_dense_verts, 0);
+        thrust::device_vector<IndexType> active_vertices(total_dense_verts, 0);
         mark_active_vertices_kernel<<<blocks, threads>>>(
             thrust::raw_pointer_cast(active_voxel_flags.data()),
             res_x, res_y, res_z, thrust::raw_pointer_cast(active_vertices.data())
         );
 
         // 5. Cube Memory Prep & Threshold Check
-        thrust::device_vector<int> cube_prefix_sums(total_voxels);
+        thrust::device_vector<IndexType> cube_prefix_sums(total_voxels, 0);
         thrust::exclusive_scan(active_voxel_flags.begin(), active_voxel_flags.end(), cube_prefix_sums.begin());
 
         *out_num_cubes = cube_prefix_sums.back() + active_voxel_flags.back();
         if (*out_num_cubes == 0) return; 
 
         // 6. Sparse Vertex Check & Output Assignment
-        thrust::device_vector<int> vertex_prefix_sums(total_dense_verts);
+        thrust::device_vector<IndexType> vertex_prefix_sums(total_dense_verts, 0);
         thrust::exclusive_scan(active_vertices.begin(), active_vertices.end(), vertex_prefix_sums.begin());
         *out_num_vertices = vertex_prefix_sums.back() + active_vertices.back();
 
@@ -286,7 +291,7 @@ namespace grid {
         cudaMalloc(out_cubes, (*out_num_cubes) * 8 * sizeof(IndexType));
 
         // 7. Final Generation Kernels Map Values Properly
-        int blocks_verts = (total_dense_verts + threads - 1) / threads;
+        IndexType blocks_verts = (total_dense_verts + threads - 1) / threads;
         generate_sparse_vertices_kernel<<<blocks_verts, threads>>>(
             thrust::raw_pointer_cast(active_vertices.data()), thrust::raw_pointer_cast(vertex_prefix_sums.data()),
             *out_vertices, bbox.min_pt.x, bbox.min_pt.y, bbox.min_pt.z,
@@ -306,6 +311,22 @@ namespace grid {
         int res_x, int res_y, int res_z, int k_threshold, int num_keep, float r,
         Vertex<float>** out_vertices, int* out_num_vertices,
         int** out_cubes, int* out_num_cubes,
+        int device
+    );
+
+    // template void pc_to_voxel_grid<float, long>(
+    //     Vertex<float> const *points, long num_points,
+    //     long res_x, long res_y, long res_z, int k_threshold, int num_keep, float r,
+    //     Vertex<float>** out_vertices, long* out_num_vertices,
+    //     long** out_cubes, long* out_num_cubes,
+    //     int device
+    // );
+
+    template void pc_to_voxel_grid<float, long long>(
+        Vertex<float> const *points, long long num_points,
+        long long res_x, long long res_y, long long res_z, int k_threshold, int num_keep, float r,
+        Vertex<float>** out_vertices, long long* out_num_vertices,
+        long long** out_cubes, long long* out_num_cubes,
         int device
     );
 }
