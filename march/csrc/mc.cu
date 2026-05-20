@@ -361,7 +361,7 @@ namespace mc {
         Scalar iso,
         uint8_t* cube_codes
     ) {
-        int cube_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType cube_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (cube_idx >= n_cubes) return;
 
         IndexType const *v_ptr = &cubes[cube_idx * 8]; // 8 vertex indices of the cube
@@ -382,7 +382,7 @@ namespace mc {
         IndexType* used_cube_index,
         uint8_t* used_cube_code
     ) {
-        int cube_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType cube_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (cube_idx >= n_cubes) return;
 
         uint8_t code = cube_codes[cube_idx];
@@ -403,7 +403,7 @@ namespace mc {
         long long* active_edges,
         IndexType n_used_cubes
     ) {
-        int active_cube_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType active_cube_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (active_cube_idx >= n_used_cubes) return;
 
         IndexType cube_idx = used_cube_index[active_cube_idx];
@@ -436,7 +436,7 @@ namespace mc {
         IndexType n_used_cubes,
         IndexType n_verts
     ) {
-        int active_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType active_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (active_idx >= n_used_cubes) return;
 
         IndexType global_cube_idx = used_cube_index[active_idx];
@@ -477,7 +477,7 @@ namespace mc {
         Scalar iso,
         Vertex<Scalar>* out_verts
     ) {
-        int v_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType v_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (v_idx >= n_verts) return;
 
         // 1. Decode the 64-bit edge
@@ -506,7 +506,7 @@ namespace mc {
         IndexType n_used_cubes,
         IndexType* tris
     ) {
-        int active_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType active_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (active_idx >= n_used_cubes) return;
 
         // 1. Get the code for this cube
@@ -523,7 +523,7 @@ namespace mc {
         for (int i = 0; i < face_num; i++) {
             int local_edge_id = marchingCubesIds[face_start + i];
             // Use the map to get the shared unique vertex ID
-            int unique_v_id = cube_edge_to_vert_idx[active_idx * 12 + local_edge_id];
+            IndexType unique_v_id = cube_edge_to_vert_idx[active_idx * 12 + local_edge_id];
             tris[out_start + i] = unique_v_id;
         }
     };
@@ -602,8 +602,8 @@ namespace mc {
         int device
     ) {
 
-        int threads = 256;
-        int blocks = (n_cubes + threads - 1) / threads;
+        IndexType threads = 256;
+        IndexType blocks = (n_cubes + threads - 1) / threads;
         cudaSetDevice(device);
         
         // 0. Ensure we have enough storage for the cube codes and prefix sums
@@ -650,7 +650,7 @@ namespace mc {
         CHECK_CUDA(cudaMalloc(&d_all_edges, this->n_used_cubes * 12 * sizeof(long long)));
 
         // 9. Run the kernel to extract active edges
-        int active_blocks = (this->n_used_cubes + threads - 1) / threads;
+        IndexType active_blocks = (this->n_used_cubes + threads - 1) / threads;
         extract_active_edges_kernel<<<active_blocks, threads>>>(
             cubes, 
             this->used_cube_index, 
@@ -685,7 +685,7 @@ namespace mc {
         CHECK_CUDA(cudaDeviceSynchronize());
 
         // 13. Interpolate Vertices
-        int vert_blocks = (this->n_verts + threads - 1) / threads;
+        IndexType vert_blocks = (this->n_verts + threads - 1) / threads;
         interpolate_vertices_kernel<<<vert_blocks, threads>>>(
             this->unique_edges,
             grid_vertices,
@@ -737,7 +737,7 @@ namespace mc {
         Scalar iso,
         Scalar* adj_values
     ) {
-        int v_idx = blockIdx.x * blockDim.x + threadIdx.x;
+        IndexType v_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (v_idx >= n_verts) return;
 
         // 1. Decode the unique edge to find the two grid vertex parents
@@ -783,8 +783,8 @@ namespace mc {
         cudaSetDevice(device);
         // If no vertices were generated, there are no gradients to propagate
         if (this->n_verts == 0) return;
-        int threads = 256;
-        int blocks = (this->n_verts + threads - 1) / threads;
+        IndexType threads = 256;
+        IndexType blocks = (this->n_verts + threads - 1) / threads;
         backward_dmc_kernel<<<blocks, threads>>>(
             this->unique_edges,
             values,
@@ -799,45 +799,46 @@ namespace mc {
         CHECK_CUDA(cudaDeviceSynchronize());
     };
 
-    // template struct MC<double, int>;
     template struct MC<float, int>;
-    // template struct MC<__half, int>;
+    template struct MC<float, long long>;
 
     // Explicit template instantiation for kernel functions
 
-    // template __global__ void identify_active_cubes_kernel<double, int>(
-    //     const int*, const double*, int, double, uint8_t*);
     template __global__ void identify_active_cubes_kernel<float, int>(
         const int*, const float*, int, float, uint8_t*);
-    // template __global__ void identify_active_cubes_kernel<__half, int>(
-    //     const int*, const __half*, int, __half, uint8_t*);
+    template __global__ void identify_active_cubes_kernel<float, long long>(
+        const long long*, const float*, long long, float, uint8_t*);
 
     template __global__ void compact_active_cubes_kernel<int>(
         const uint8_t*, const int*, int, int*, uint8_t*);
+    template __global__ void compact_active_cubes_kernel<long long>(
+        const uint8_t*, const long long*, long long, long long*, uint8_t*);
 
     template __global__ void extract_active_edges_kernel<int>(
         const int*, const int*, const uint8_t*, long long*, int);
+    template __global__ void extract_active_edges_kernel<long long>(
+        const long long*, const long long*, const uint8_t*, long long*, long long);
 
     template __global__ void build_edge_map_kernel<int>(
         const int*, const int*, const long long*, int*, int, int);
+    template __global__ void build_edge_map_kernel<long long>(
+        const long long*, const long long*, const long long*, long long*, long long, long long);
 
-    // template __global__ void interpolate_vertices_kernel<double, int>(
-    //     const long long*, const Vertex<double>*, const double*, int, double, Vertex<double>*);
     template __global__ void interpolate_vertices_kernel<float, int>(
         const long long*, const Vertex<float>*, const float*, int, float, Vertex<float>*);
-    // template __global__ void interpolate_vertices_kernel<__half, int>(
-    //     const long long*, const Vertex<__half>*, const __half*, int, __half, Vertex<__half>*);
+    template __global__ void interpolate_vertices_kernel<float, long long>(
+        const long long*, const Vertex<float>*, const float*, long long, float, Vertex<float>*);
 
     template __global__ void assemble_triangles_kernel<int>(
         const uint8_t*, const int*, const int*, int, int*);
+    template __global__ void assemble_triangles_kernel<long long>(
+        const uint8_t*, const long long*, const long long*, long long, long long*);
 
     template __global__ void backward_dmc_kernel<float, int>(
         const long long*, const float*, const Vertex<float>*, const Vertex<float>*, int, float, float*);
-    // template __global__ void backward_dmc_kernel<__half, int>(
-    //     const long long*, const __half*, const Vertex<__half>*, const Vertex<__half>*, int, __half, __half*);
+    template __global__ void backward_dmc_kernel<float, long long>(
+        const long long*, const float*, const Vertex<float>*, const Vertex<float>*, long long, float, float*);
 }
 
 template struct primitive::Vertex<float>;
-// template struct primitive::Vertex<double>;
-// template struct primitive::Vertex<__half>;
 template struct primitive::Triangle<int>;
