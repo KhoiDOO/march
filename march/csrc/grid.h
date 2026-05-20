@@ -15,6 +15,7 @@ namespace grid {
         IndexType res_z, 
         int k_threshold,
         int num_keep,
+        float r,
         Vertex<Scalar>** out_vertices,
         IndexType* out_num_vertices,
         IndexType** out_cubes,
