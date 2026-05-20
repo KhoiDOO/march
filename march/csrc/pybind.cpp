@@ -152,7 +152,8 @@ namespace grid_wrapper {
         IndexType res_y,
         IndexType res_z,
         int k_threshold,
-        int num_keep
+        int num_keep,
+        float r
     ) {
         CHECK_INPUT(points);
         int num_points = points.size(0);
@@ -186,6 +187,7 @@ namespace grid_wrapper {
             res_z,
             k_threshold,
             num_keep,
+            r,
             &out_vertices,
             &out_num_vertices,
             &out_cubes,
@@ -221,7 +223,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     
     m.def("pc_to_voxel_grid", &grid_wrapper::pc_to_voxel_grid<float, int>, 
           "Convert a point cloud to a sparse voxel grid.",
-          pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"), pybind11::arg("num_keep"));
+          pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"), pybind11::arg("num_keep"), pybind11::arg("r"));
 
     // pybind11::class_<mc_wrapper::MC_Wrapper<__half, int>>(m, "MCH")
     //     .def(pybind11::init<>())
