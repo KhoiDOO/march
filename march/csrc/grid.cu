@@ -214,7 +214,12 @@ namespace grid {
         IndexType res_z, 
         int k_threshold,
         int num_keep,
-        float r,
+        float rmi_x,
+        float rmi_y,
+        float rmi_z,
+        float rma_x,
+        float rma_y,
+        float rma_z,
         Vertex<Scalar>** out_vertices,
         IndexType* out_num_vertices,
         IndexType** out_cubes,
@@ -231,12 +236,12 @@ namespace grid {
             d_pts, d_pts + num_points, PointToBBox<Scalar>(), init_box, BBoxReduce<Scalar>());
         
         // Apply the truncation factor 'r' to the bounding box
-        bbox.min_pt.x *= r;
-        bbox.min_pt.y *= r;
-        bbox.min_pt.z *= r;
-        bbox.max_pt.x *= r;
-        bbox.max_pt.y *= r;
-        bbox.max_pt.z *= r;
+        bbox.min_pt.x *= rmi_x;
+        bbox.min_pt.y *= rmi_y;
+        bbox.min_pt.z *= rmi_z;
+        bbox.max_pt.x *= rma_x;
+        bbox.max_pt.y *= rma_y;
+        bbox.max_pt.z *= rma_z;
 
         Scalar cx = (bbox.max_pt.x - bbox.min_pt.x) / (Scalar)res_x;
         Scalar cy = (bbox.max_pt.y - bbox.min_pt.y) / (Scalar)res_y;
@@ -308,23 +313,17 @@ namespace grid {
     // Explicit template instantiations
     template void pc_to_voxel_grid<float, int>(
         Vertex<float> const *points, int num_points,
-        int res_x, int res_y, int res_z, int k_threshold, int num_keep, float r,
+        int res_x, int res_y, int res_z, int k_threshold, int num_keep, 
+        float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<float>** out_vertices, int* out_num_vertices,
         int** out_cubes, int* out_num_cubes,
         int device
     );
 
-    // template void pc_to_voxel_grid<float, long>(
-    //     Vertex<float> const *points, long num_points,
-    //     long res_x, long res_y, long res_z, int k_threshold, int num_keep, float r,
-    //     Vertex<float>** out_vertices, long* out_num_vertices,
-    //     long** out_cubes, long* out_num_cubes,
-    //     int device
-    // );
-
     template void pc_to_voxel_grid<float, long long>(
         Vertex<float> const *points, long long num_points,
-        long long res_x, long long res_y, long long res_z, int k_threshold, int num_keep, float r,
+        long long res_x, long long res_y, long long res_z, int k_threshold, int num_keep, 
+        float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<float>** out_vertices, long long* out_num_vertices,
         long long** out_cubes, long long* out_num_cubes,
         int device
