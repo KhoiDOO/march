@@ -30,7 +30,8 @@ int main() {
     int res_x = 128, res_y = 128, res_z = 128;
     int k_threshold = 1;
     int num_keep = 0;
-    float r = 1.0f; // bounding-box truncation / scaling factor
+    float rmi_x = 0.2f, rmi_y = 0.0f, rmi_z = 1.0f; // min corner of the bounding box
+    float rma_x = 1.0f, rma_y = 1.0f, rma_z = 1.0f; // max corner of the bounding box
 
     // Prepare host points (100k random samples over the 0..1024 cube)
     const int n_points = 100000;
@@ -59,7 +60,7 @@ int main() {
     grid::pc_to_voxel_grid<float,int>(
         d_points, n_points,
         res_x, res_y, res_z,
-        k_threshold, num_keep, r,
+        k_threshold, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
         &d_out_vertices, &out_num_vertices,
         &d_out_cubes, &out_num_cubes,
         device
@@ -108,7 +109,7 @@ int main() {
     grid::pc_to_voxel_grid<float,long long>(
         d_points, n_points,
         res_x, res_y, res_z,
-        k_threshold, num_keep, r,
+        k_threshold, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
         &d_out_vertices_ll, &out_num_vertices_ll,
         &d_out_cubes_ll, &out_num_cubes_ll,
         device
