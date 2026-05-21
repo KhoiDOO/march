@@ -8,10 +8,10 @@
 git clone https://github.com/KhoiDOO/march.git
 cd march
 
-conda create -c conda-forge -n march python=3.10 gxx_linux-64=13 gcc_linux-64=13
+conda create -c conda-forge -n march python=3.10 gxx_linux-64=13 gcc_linux-64=13 -y
 conda activate march
 
-conda install nvidia::cuda-toolkit==12.8.2
+conda install nvidia::cuda-toolkit==12.8.2 -y
 
 pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 ```
