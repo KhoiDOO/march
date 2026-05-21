@@ -4,6 +4,7 @@
 
 using primitive::Vertex;
 using primitive::Triangle;
+using primitive::EdgeKey;
 
 
 //  Coordinate system
@@ -79,7 +80,7 @@ namespace mc {
         IndexType *__restrict__ used_to_first_mc_tri{};   // used cube to mc tri index
 
         // unique edge to vert
-        long long *__restrict__ unique_edges{}; // [n_verts] array storing the pair of grid vertex indices
+        EdgeKey<IndexType> *__restrict__ unique_edges{}; // [n_verts] array storing the pair of grid vertex indices
 
         // output
         size_t allocated_vert_count{};

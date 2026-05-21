@@ -98,4 +98,23 @@ namespace primitive {
         }
     };
 
+    template <typename IndexType>
+    struct EdgeKey {
+        IndexType v0;
+        IndexType v1;
+
+        // Required by thrust::sort and binary search
+        __host__ __device__
+        bool operator<(const EdgeKey& other) const {
+            if (v0 != other.v0) return v0 < other.v0;
+            return v1 < other.v1;
+        }
+
+        // Required by thrust::unique
+        __host__ __device__
+        bool operator==(const EdgeKey& other) const {
+            return v0 == other.v0 && v1 == other.v1;
+        }
+    };
+
 }  // namespace primitive
