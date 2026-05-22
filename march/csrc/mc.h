@@ -86,15 +86,17 @@ namespace mc {
         size_t allocated_vert_count{};
         size_t allocated_tri_count{};
         Vertex<Scalar> *__restrict__ verts{}; // output verts
+        Vertex<Scalar> *__restrict__ out_colors{}; // output vert colors
         IndexType *__restrict__ tris{}; // output triangles
 
         __host__ void ensure_grid_storage_size(size_t n_cubes);
         __host__ void ensure_used_cube_storage_size(size_t n_used_cubes);
-        __host__ void ensure_vert_storage_size(size_t n_verts);
+        __host__ void ensure_vert_storage_size(size_t n_verts, bool with_colors);
         __host__ void ensure_tri_storage_size(size_t n_tris);
 
         __host__ void forward(
             Vertex<Scalar> const *grid_vertices, // N * 3 array of grid vertex positions
+            Vertex<Scalar> const *grid_colors, // N * 3 array of grid vertex colors
             IndexType const *cubes, // (N-1) * 8 array of cube vertex indices
             Scalar const *values, // N array of scalar values at grid vertices
             IndexType n_cubes, 
@@ -104,9 +106,12 @@ namespace mc {
 
         __host__ void backward(
             Vertex<Scalar> const *grid_vertices,
+            Vertex<Scalar> const *grid_colors,
             Scalar const *values,
             Vertex<Scalar> const *adj_verts,
+            Vertex<Scalar> const *adj_colors,
             Scalar *adj_values,
+            Vertex<Scalar> *adj_grid_colors,
             Scalar iso,
             int device
         );
@@ -121,6 +126,7 @@ namespace mc {
             if (unique_edges) cudaFree(unique_edges);
             if (verts) cudaFree(verts);
             if (tris) cudaFree(tris);
+            if (out_colors) cudaFree(out_colors);
         }
     };
 }

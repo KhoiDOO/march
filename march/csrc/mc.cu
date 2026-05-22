@@ -32,7 +32,8 @@ namespace mc {
     template <typename T>
     inline __device__ __host__ T clamp(T x, T a, T b){ return min(max(a, x), b); }
 
-    // constexpr int BLOCK_SIZE = 512;
+    template <typename T>
+    inline __device__ __host__ T d_abs(T x) { return x < T(0.0) ? -x : x; }
 
     __constant__ int edge2vertices[12][2] = {
         {0, 1},
@@ -336,7 +337,7 @@ namespace mc {
         0, 3, 8,
     };
 
-    __constant__ int index[8] = {0, 1, 5, 4, 2, 3, 7, 6};
+    __constant__ int local_v_idx[8] = {0, 1, 5, 4, 2, 3, 7, 6};
 
     struct IsActiveOp {
         __host__ __device__
@@ -367,7 +368,7 @@ namespace mc {
         IndexType const *v_ptr = &cubes[cube_idx * 8]; // 8 vertex indices of the cube
         uint8_t code = 0;
         for (int i = 0; i < 8; ++i) {
-            if (values[v_ptr[index[i]]] >= iso) {
+            if (values[v_ptr[local_v_idx[i]]] >= iso) {
                 code |= (1 << i);
             }
         }
@@ -474,18 +475,18 @@ namespace mc {
     __global__ void interpolate_vertices_kernel(
         const EdgeKey<IndexType>* unique_edges,
         const Vertex<Scalar>* grid_vertices,
+        const Vertex<Scalar>* grid_colors,
         const Scalar* values,
         IndexType n_verts,
         Scalar iso,
-        Vertex<Scalar>* out_verts
+        Vertex<Scalar>* out_verts,
+        Vertex<Scalar>* out_colors,
+        bool with_colors
     ) {
         IndexType v_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (v_idx >= n_verts) return;
 
         // 1. Decode the 64-bit edge
-        // long long edge_sig = unique_edges[v_idx];
-        // IndexType v0_idx = static_cast<IndexType>(edge_sig >> 32);
-        // IndexType v1_idx = static_cast<IndexType>(edge_sig & 0xFFFFFFFF);
         EdgeKey<IndexType> edge_sig = unique_edges[v_idx];
         IndexType v0_idx = edge_sig.v0;
         IndexType v1_idx = edge_sig.v1;
@@ -496,11 +497,38 @@ namespace mc {
         Scalar val0 = values[v0_idx];
         Scalar val1 = values[v1_idx];
 
-        // 3. Interpolate (Differentiable formula)
-        Scalar t = (val1 != val0) ? clamp((iso - val0) / (val1 - val0), Scalar(0.0), Scalar(1.0)) : Scalar(0.5);
+        Vertex<Scalar> c0, c1;
+        if (with_colors) {
+            c0 = grid_colors[v0_idx];
+            c1 = grid_colors[v1_idx];
+        }
 
-        // Result = P0 + (P1 - P0) * t
-        out_verts[v_idx] = p0 + (p1 - p0) * t;
+        // 3. Interpolate (Differentiable formula)
+        const Scalar EPS = Scalar(1e-5);
+
+        Vertex<Scalar> p;
+        Vertex<Scalar> c;
+
+        if (d_abs(iso - val0) < EPS) {
+            p = p0; 
+            if (with_colors) c = c0;
+        } 
+        else if (d_abs(iso - val1) < EPS) {
+            p = p1; 
+            if (with_colors) c = c1;
+        } 
+        else if (d_abs(val0 - val1) < EPS) {
+            p = p0; 
+            if (with_colors) c = c0;
+        }
+        else {
+            Scalar t = (val1 != val0) ? clamp((iso - val0) / (val1 - val0), Scalar(0.0), Scalar(1.0)) : Scalar(0.5);
+            p = p0 + (p1 - p0) * t;
+            if (with_colors) c = c0 + (c1 - c0) * t;
+        }
+            
+        out_verts[v_idx] = p;
+        if (with_colors) out_colors[v_idx] = c;
     };
 
     template <typename IndexType>
@@ -569,18 +597,29 @@ namespace mc {
     };
 
     template <typename Scalar, typename IndexType>
-    void MC<Scalar, IndexType>::ensure_vert_storage_size(size_t n_verts) {
-        if (n_verts > this->allocated_vert_count) {
+    void MC<Scalar, IndexType>::ensure_vert_storage_size(size_t n_verts, bool with_colors) {
+
+        bool missing_color_buffer = (with_colors && this->out_colors == nullptr);
+
+        if (n_verts > this->allocated_vert_count || missing_color_buffer) {
             
-            this->allocated_vert_count = n_verts + n_verts / 5;  // Add 20% buffer to avoid frequent reallocations
+            if (n_verts > this->allocated_vert_count) {
+                this->allocated_vert_count = n_verts + n_verts / 5;
+            }  // Add 20% buffer to avoid frequent reallocations
 
             // Free old memory
             if (this->unique_edges) CHECK_CUDA(cudaFree(this->unique_edges));
             if (this->verts) CHECK_CUDA(cudaFree(this->verts));
+            if (this->out_colors && with_colors) CHECK_CUDA(cudaFree(this->out_colors));
 
             // Allocate new memory
             CHECK_CUDA(cudaMalloc((void **)&this->unique_edges, this->allocated_vert_count * sizeof(EdgeKey<IndexType>)));
             CHECK_CUDA(cudaMalloc((void **)&this->verts, this->allocated_vert_count * sizeof(Vertex<Scalar>)));
+            if (with_colors) {
+                CHECK_CUDA(cudaMalloc((void **)&this->out_colors, this->allocated_vert_count * sizeof(Vertex<Scalar>)));
+            } else {
+                this->out_colors = nullptr;
+            }
         }
     };
 
@@ -600,6 +639,7 @@ namespace mc {
     template <typename Scalar, typename IndexType>
     void MC<Scalar, IndexType>::forward(
         Vertex<Scalar> const *grid_vertices,
+        Vertex<Scalar> const *grid_colors,
         IndexType const *cubes,
         Scalar const *values,
         IndexType n_cubes, 
@@ -609,6 +649,7 @@ namespace mc {
 
         IndexType threads = 256;
         IndexType blocks = (n_cubes + threads - 1) / threads;
+        bool with_colors = (grid_colors != nullptr);
         cudaSetDevice(device);
         
         // 0. Ensure we have enough storage for the cube codes and prefix sums
@@ -673,7 +714,7 @@ namespace mc {
         auto valid_start = thrust::upper_bound(dev_all_edges, dev_all_edges + (this->n_used_cubes * 12), empty_edge);
 
         this->n_verts = thrust::distance(valid_start, thrust::unique(valid_start, dev_all_edges + (this->n_used_cubes * 12)));
-        this->ensure_vert_storage_size(this->n_verts);
+        this->ensure_vert_storage_size(this->n_verts, with_colors);
 
         // 11. Extract the unique edges to a separate array for interpolation
         CHECK_CUDA(cudaMemcpy(this->unique_edges, valid_start.get(), this->n_verts * sizeof(EdgeKey<IndexType>), cudaMemcpyDeviceToDevice));
@@ -695,10 +736,13 @@ namespace mc {
         interpolate_vertices_kernel<<<vert_blocks, threads>>>(
             this->unique_edges,
             grid_vertices,
+            grid_colors,
             values,
             this->n_verts,
             iso,
-            this->verts
+            this->verts,
+            this->out_colors,
+            with_colors
         );
         CHECK_CUDA(cudaDeviceSynchronize());
 
@@ -738,23 +782,22 @@ namespace mc {
         const EdgeKey<IndexType>* unique_edges,
         const Scalar* grid_values,
         const Vertex<Scalar>* grid_coords,
+        const Vertex<Scalar>* grid_colors,
         const Vertex<Scalar>* adj_verts,
+        const Vertex<Scalar>* adj_colors,
         IndexType n_verts,
         Scalar iso,
-        Scalar* adj_values
+        Scalar* adj_values,
+        Vertex<Scalar>* adj_grid_colors,
+        bool with_colors
     ) {
         IndexType v_idx = (IndexType) blockIdx.x * blockDim.x + threadIdx.x;
         if (v_idx >= n_verts) return;
 
-        // 1. Decode the unique edge to find the two grid vertex parents
-        // long long edge_sig = unique_edges[v_idx];
-        // IndexType v0_idx = static_cast<IndexType>(edge_sig >> 32);
-        // IndexType v1_idx = static_cast<IndexType>(edge_sig & 0xFFFFFFFF);
         EdgeKey<IndexType> edge_sig = unique_edges[v_idx];
         IndexType v0_idx = edge_sig.v0;
         IndexType v1_idx = edge_sig.v1;
 
-        // 2. Fetch the data needed for the chain rule
         Scalar v0_val = grid_values[v0_idx];
         Scalar v1_val = grid_values[v1_idx];
         Vertex<Scalar> p0 = grid_coords[v0_idx];
@@ -762,19 +805,44 @@ namespace mc {
 
         Vertex<Scalar> grad_p_out = adj_verts[v_idx];
 
-        // 3. Adjoint Math (Derivative of Linear Interpolation)
-        Scalar diff = v1_val - v0_val;
-        if (diff * diff < Scalar(1e-14)) return;
+        Vertex<Scalar> c0, c1, grad_c_out;
+        if (with_colors) {
+            c0 = grid_colors[v0_idx];
+            c1 = grid_colors[v1_idx];
+            grad_c_out = adj_colors[v_idx];
+        }
 
-        // Project the 3D gradient onto the edge direction
+        Scalar diff = v1_val - v0_val;
+
+        if (with_colors) {
+            const Scalar EPS = Scalar(1e-5);
+            Scalar t = Scalar(0.5);
+            if (d_abs(iso - v0_val) < EPS) t = Scalar(0.0);
+            else if (d_abs(iso - v1_val) < EPS) t = Scalar(1.0);
+            else if (d_abs(diff) >= EPS) {
+                t = clamp((iso - v0_val) / diff, Scalar(0.0), Scalar(1.0));
+            }
+
+            constexpr int CHANNELS = sizeof(Vertex<Scalar>) / sizeof(Scalar);
+            Scalar t0 = Scalar(1.0) - t;
+            Scalar t1 = t;
+            Scalar* adj_c0_ptr = (Scalar*)&adj_grid_colors[v0_idx];
+            Scalar* adj_c1_ptr = (Scalar*)&adj_grid_colors[v1_idx];
+            const Scalar* grad_c_out_ptr = (const Scalar*)&grad_c_out;
+            
+            for (int c = 0; c < CHANNELS; ++c) {
+                atomicAdd(&adj_c0_ptr[c], grad_c_out_ptr[c] * t0);
+                atomicAdd(&adj_c1_ptr[c], grad_c_out_ptr[c] * t1);
+            }
+        }
+        
+        if (diff * diff < Scalar(1e-14)) return;
         Scalar dot_prod = (p1 - p0).dot(grad_p_out);
         Scalar common = dot_prod / (diff * diff);
-
-        // Calculate how the scalar values at the endpoints affect the vertex position
         Scalar grad_v0 = common * (iso - v1_val);
         Scalar grad_v1 = common * (v0_val - iso);
 
-        // 4. Distribute the gradients back to the grid
+        // Distribute the gradients back to the grid
         // Multiple unique edges share the same grid vertex, so we MUST use atomicAdd
         atomicAdd(&adj_values[v0_idx], grad_v0);
         atomicAdd(&adj_values[v1_idx], grad_v1);
@@ -783,13 +851,18 @@ namespace mc {
     template <typename Scalar, typename IndexType>
     void MC<Scalar, IndexType>::backward(
         Vertex<Scalar> const *grid_vertices,
+        Vertex<Scalar> const *grid_colors,
         Scalar const *values,
-        Vertex<Scalar> const *adj_verts, // Input Gradient (Mesh)
-        Scalar *adj_values,              // Output Gradient (Grid Values)
+        Vertex<Scalar> const *adj_verts,
+        Vertex<Scalar> const *adj_colors,
+        Scalar *adj_values,
+        Vertex<Scalar> *adj_grid_colors,
         Scalar iso,
         int device
     ) {
         cudaSetDevice(device);
+        bool with_colors = (grid_colors != nullptr && adj_colors != nullptr && adj_grid_colors != nullptr);
+        
         // If no vertices were generated, there are no gradients to propagate
         if (this->n_verts == 0) return;
         IndexType threads = 256;
@@ -798,10 +871,14 @@ namespace mc {
             this->unique_edges,
             values,
             grid_vertices,
+            grid_colors,
             adj_verts,
+            adj_colors,
             this->n_verts,
             iso,
-            adj_values
+            adj_values,
+            adj_grid_colors,
+            with_colors
         );
 
         // Ensure the GPU finishes before returning to the framework
@@ -834,9 +911,27 @@ namespace mc {
         const long long*, const long long*, const EdgeKey<long long>*, long long*, long long, long long);
 
     template __global__ void interpolate_vertices_kernel<float, int>(
-        const EdgeKey<int>*, const Vertex<float>*, const float*, int, float, Vertex<float>*);
+        const EdgeKey<int>*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        const float*, 
+        int, 
+        float, 
+        Vertex<float>*, 
+        Vertex<float>*, 
+        bool
+    );
     template __global__ void interpolate_vertices_kernel<float, long long>(
-        const EdgeKey<long long>*, const Vertex<float>*, const float*, long long, float, Vertex<float>*);
+        const EdgeKey<long long>*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        const float*, 
+        long long, 
+        float, 
+        Vertex<float>*, 
+        Vertex<float>*, 
+        bool
+    );
 
     template __global__ void assemble_triangles_kernel<int>(
         const uint8_t*, const int*, const int*, int, int*);
@@ -844,9 +939,31 @@ namespace mc {
         const uint8_t*, const long long*, const long long*, long long, long long*);
 
     template __global__ void backward_dmc_kernel<float, int>(
-        const EdgeKey<int>*, const float*, const Vertex<float>*, const Vertex<float>*, int, float, float*);
+        const EdgeKey<int>*, 
+        const float*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        int, 
+        float, 
+        float*,
+        Vertex<float>*,
+        bool
+    );
     template __global__ void backward_dmc_kernel<float, long long>(
-        const EdgeKey<long long>*, const float*, const Vertex<float>*, const Vertex<float>*, long long, float, float*);
+        const EdgeKey<long long>*, 
+        const float*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        const Vertex<float>*, 
+        long long, 
+        float, 
+        float*,
+        Vertex<float>*,
+        bool
+    );
 }
 
 template struct primitive::Vertex<float>;

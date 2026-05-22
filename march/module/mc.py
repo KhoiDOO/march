@@ -20,29 +20,62 @@ class DMC(nn.Module):
             
         class DMCFunction(Function):
             @staticmethod
-            def forward(ctx, grid_vertices, cubes, values, iso):
-                verts, tris = mc.forward(grid_vertices, cubes, values, iso)
+            def forward(ctx, grid_vertices, cubes, values, iso, grid_colors):
+                verts, tris, out_colors = mc.forward(grid_vertices, cubes, values, iso, grid_colors)
                 ctx.isovalue = iso
-                ctx.save_for_backward(grid_vertices, values)
-                return verts, tris
+                ctx.save_for_backward(grid_vertices, values, grid_colors)
+                return verts, tris, out_colors
             
             @staticmethod
-            def backward(ctx, adj_verts, adj_faces):
-                grid_vertices, values = ctx.saved_tensors
+            def backward(ctx, adj_verts, adj_faces, adj_out_colors):
+                grid_vertices, values, grid_colors = ctx.saved_tensors
                 iso = ctx.isovalue
 
                 adj_values = torch.zeros_like(values)
-                mc.backward(grid_vertices, values, adj_verts, adj_values, iso)
-                return None, None, adj_values, None
+                adj_grid_colors = None
+                
+                if grid_colors is not None and adj_out_colors is not None:
+                    adj_grid_colors = torch.zeros_like(grid_colors)
+                else:
+                    # Pass None so PyBind correctly skips the color backward math
+                    adj_grid_colors = None
+                    adj_out_colors = None
+                
+                mc.backward(
+                    grid_vertices, 
+                    values, 
+                    adj_verts, 
+                    adj_values, 
+                    iso,
+                    grid_colors,
+                    adj_out_colors,
+                    adj_grid_colors
+                )
+                
+                # Return gradients matching the order of forward() arguments:
+                # 1. grid_vertices -> None
+                # 2. cubes -> None
+                # 3. values -> adj_values
+                # 4. iso -> None
+                # 5. grid_colors -> adj_grid_colors
+                return None, None, adj_values, None, adj_grid_colors
         
         self.func = DMCFunction
         self._mc = mc  # Keep reference alive
     
-    def forward(self, grid_vertices, cubes, values, iso):
+    def forward(self, grid_vertices, cubes, values, iso, grid_colors=None):
         if values.min() >= iso or values.max() <= iso:
-            return torch.zeros((0, 3), dtype=self.vdtype, device=grid_vertices.device), \
-                torch.zeros((0, 3), dtype=self.cdtype, device=grid_vertices.device)
+            empty_verts = torch.zeros((0, 3), dtype=self.vdtype, device=grid_vertices.device)
+            empty_tris = torch.zeros((0, 3), dtype=self.cdtype, device=grid_vertices.device)
+            
+            if grid_colors is not None:
+                empty_colors = torch.zeros((0, grid_colors.shape[-1]), dtype=self.vdtype, device=grid_vertices.device)
+                return empty_verts, empty_tris, empty_colors
+            return empty_verts, empty_tris
         
-        verts, tris = self.func.apply(grid_vertices, cubes, values, iso)
+        verts, tris, out_colors = self.func.apply(grid_vertices, cubes, values, iso, grid_colors)
+        
+        if grid_colors is not None:
+            return verts, tris.long(), out_colors
 
         return verts, tris.long()
