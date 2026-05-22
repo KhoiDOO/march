@@ -41,6 +41,9 @@ pip install git+https://github.com/NVlabs/nvdiffrast.git --no-build-isolation
 
 ## Kaolin
 pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
+
+## Point Cloud Utils
+pip install point-cloud-utils==0.34.0
 ```
 
 ### Cuda Example
