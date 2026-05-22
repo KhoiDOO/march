@@ -118,9 +118,9 @@ int main() {
     
     // ========== FORWARD PASS ==========
     std::cout << "\n=== Forward Pass ===" << std::endl;
-    std::cout << "Running forward pass..." << std::endl;
+    std::cout << "Running forward pass with color data..." << std::endl;
     MC<float, int> mc;
-    mc.forward(d_grid_vertices, d_cubes, d_values, n_cubes, iso_value, device);
+    mc.forward(d_grid_vertices, nullptr, d_cubes, d_values, n_cubes, iso_value, device);
     
     std::cout << "Forward pass completed!" << std::endl;
     std::cout << "  Active cubes: " << mc.n_used_cubes << std::endl;
@@ -171,9 +171,18 @@ int main() {
     
     std::cout << "Copying adjoint vertices to device..." << std::endl;
     cudaMemcpy(d_adj_verts, adj_verts.data(), mc.n_verts * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
-    
     std::cout << "Running backward pass..." << std::endl;
-    mc.backward(d_grid_vertices, d_values, d_adj_verts, d_adj_values, iso_value, device);
+    mc.backward(
+        d_grid_vertices, 
+        nullptr, // No color data in this test
+        d_values, 
+        d_adj_verts, 
+        nullptr, // No color gradients
+        d_adj_values, 
+        nullptr, // No color gradients
+        iso_value, 
+        device
+    );
     
     std::cout << "Backward pass completed!" << std::endl;
     
@@ -219,7 +228,6 @@ int main() {
     cudaFree(d_cubes);
     cudaFree(d_adj_verts);
     cudaFree(d_adj_values);
-    
     std::cout << "\n=== Done ===" << std::endl;
     return 0;
 }

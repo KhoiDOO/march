@@ -12,6 +12,7 @@ using namespace mc;
 // Generate test data: 4 cubes with specific vertices and values
 void generate_test_data(
     std::vector<Vertex<float>>& grid_vertices,
+    std::vector<Vertex<float>>& grid_colors,
     std::vector<float>& values
 ) {
     // Grid vertices (18 vertices)
@@ -34,6 +35,28 @@ void generate_test_data(
         {1, 1, -1},     // v15
         {2, 0, -1},     // v16
         {2, 1, -1}      // v17
+    };
+
+    // Grid colors (18 vertices)
+    grid_colors = {
+        {1, 0, 0},      // v0
+        {0, 1, 0},      // v1
+        {0, 0, 1},      // v2
+        {1, 1, 0},      // v3
+        {1, 0, 1},      // v4
+        {0, 1, 1},      // v5
+        {1, 1, 1},      // v6
+        {0, 0, 0},      // v7
+        {1, 0.5f, 0},   // v8
+        {0.5f, 1, 0},   // v9
+        {0.5f, 0, 1},   // v10
+        {0, 0.5f, 1},   // v11
+        {1, 0, 0.5f},   // v12
+        {0, 1, 0.5f},   // v13
+        {0.5f, 1, 0},   // v14
+        {0.5f, 0.5f, 0.5f}, // v15
+        {0.5f, 0, 0},   // v16
+        {0, 0.5f, 0}    // v17
     };
     
     // Scalar values (18 values)
@@ -85,11 +108,12 @@ int main() {
     
     // Host data
     std::vector<Vertex<float>> grid_vertices;
+    std::vector<Vertex<float>> grid_colors;
     std::vector<float> values;
     std::vector<int> cube_indices;
     
     std::cout << "Generating test data (4 cubes example)..." << std::endl;
-    generate_test_data(grid_vertices, values);
+    generate_test_data(grid_vertices, grid_colors, values);
     generate_cubes(cube_indices);
     
     int n_vertices = grid_vertices.size();
@@ -101,6 +125,7 @@ int main() {
     
     // Device data
     Vertex<float>* d_grid_vertices;
+    Vertex<float>* d_grid_colors;
     float* d_values;
     int* d_cubes;
     
@@ -108,17 +133,22 @@ int main() {
     
     std::cout << "Allocating device memory..." << std::endl;
     cudaMalloc(&d_grid_vertices, n_vertices * sizeof(Vertex<float>));
+    cudaMalloc(&d_grid_colors, n_vertices * sizeof(Vertex<float>));
     cudaMalloc(&d_values, n_vertices * sizeof(float));
     cudaMalloc(&d_cubes, cube_indices.size() * sizeof(int));
     
     std::cout << "Copying data to device..." << std::endl;
     cudaMemcpy(d_grid_vertices, grid_vertices.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_grid_colors, grid_colors.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
     cudaMemcpy(d_values, values.data(), n_vertices * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_cubes, cube_indices.data(), cube_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
-    
-    std::cout << "Running forward pass..." << std::endl;
+
     MC<float, int> mc;
-    mc.forward(d_grid_vertices, d_cubes, d_values, n_cubes, iso_value, device);
+    std::cout << "Running forward pass without color data..." << std::endl;
+    mc.forward(d_grid_vertices, nullptr, d_cubes, d_values, n_cubes, iso_value, device);
+    
+    std::cout << "Running forward pass with color data..." << std::endl;
+    mc.forward(d_grid_vertices, d_grid_colors, d_cubes, d_values, n_cubes, iso_value, device);
     
     std::cout << "Forward pass completed!" << std::endl;
     std::cout << "  Active cubes: " << mc.n_used_cubes << std::endl;
@@ -158,10 +188,13 @@ int main() {
                  << (result_tris[i+2]+1) << "\n";
     }
     obj_file.close();
+
+
     
     // Cleanup
     std::cout << "Cleaning up device memory..." << std::endl;
     cudaFree(d_grid_vertices);
+    cudaFree(d_grid_colors);
     cudaFree(d_values);
     cudaFree(d_cubes);
     
