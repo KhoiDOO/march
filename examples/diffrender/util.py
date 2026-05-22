@@ -1,130 +1,103 @@
-# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+import plotly.graph_objects as go
 import numpy as np
-import torch
-import trimesh
-import kaolin
-import nvdiffrast.torch as dr
+import kaolin as kal
 
-###############################################################################
-# Functions adapted from https://github.com/NVlabs/nvdiffrec
-###############################################################################
-
-def dot(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    return torch.sum(x*y, -1, keepdim=True)
-
-def length(x: torch.Tensor, eps: float =1e-8) -> torch.Tensor:
-    return torch.sqrt(torch.clamp(dot(x,x), min=eps)) # Clamp to avoid nan gradients because grad(sqrt(0)) = NaN
-
-def safe_normalize(x: torch.Tensor, eps: float =1e-8) -> torch.Tensor:
-    return x / length(x, eps)
-
-def perspective(fovy=0.7854, aspect=1.0, n=0.1, f=1000.0, device=None):
-    y = np.tan(fovy / 2)
-    return torch.tensor([[1/(y*aspect),    0,            0,              0], 
-                         [           0, 1/-y,            0,              0], 
-                         [           0,    0, -(f+n)/(f-n), -(2*f*n)/(f-n)], 
-                         [           0,    0,           -1,              0]], dtype=torch.float32, device=device)
-
-def translate(x, y, z, device=None):
-    return torch.tensor([[1, 0, 0, x], 
-                         [0, 1, 0, y], 
-                         [0, 0, 1, z], 
-                         [0, 0, 0, 1]], dtype=torch.float32, device=device)
-
-@torch.no_grad()
-def random_rotation_translation(t, device=None):
-    m = np.random.normal(size=[3, 3])
-    m[1] = np.cross(m[0], m[2])
-    m[2] = np.cross(m[0], m[1])
-    m = m / np.linalg.norm(m, axis=1, keepdims=True)
-    m = np.pad(m, [[0, 1], [0, 1]], mode='constant')
-    m[3, 3] = 1.0
-    m[:3, 3] = np.random.uniform(-t, t, size=[3])
-    return torch.tensor(m, dtype=torch.float32, device=device)
-
-def rotate_x(a, device=None):
-    s, c = np.sin(a), np.cos(a)
-    return torch.tensor([[1,  0, 0, 0], 
-                         [0,  c, s, 0], 
-                         [0, -s, c, 0], 
-                         [0,  0, 0, 1]], dtype=torch.float32, device=device)
-
-def rotate_y(a, device=None):
-    s, c = np.sin(a), np.cos(a)
-    return torch.tensor([[ c, 0, s, 0], 
-                         [ 0, 1, 0, 0], 
-                         [-s, 0, c, 0], 
-                         [ 0, 0, 0, 1]], dtype=torch.float32, device=device)
+def visualize_mesh(
+    mesh: kal.rep.SurfaceMesh, 
+    plot_normals=False, 
+    plot_wireframe=False,
+    plot_vertex_colors=False,
+    normal_length=0.05, 
+    step=1
+):
+    fig = go.Figure()
+    v = mesh.vertices.detach().cpu().numpy()
+    f = mesh.faces.detach().cpu().numpy()
+    n = mesh.vertex_normals.detach().cpu().numpy()
     
-class Mesh:
-    def __init__(self, vertices, faces):
-        self.vertices = vertices
-        self.faces = faces
+    # Prepare base properties for the Mesh3D trace
+    mesh_kwargs = {
+        'x': v[:, 0], 'y': v[:, 1], 'z': v[:, 2],
+        'i': f[:, 0], 'j': f[:, 1], 'k': f[:, 2],
+        'opacity': 0.8,
+        'name': 'Mesh',
+        'showlegend': True
+    }
+
+    if plot_vertex_colors:
+        assert hasattr(mesh, 'vertex_colors') or mesh.has_attribute('vertex_colors'), "Mesh does not have vertex colors"
+        vertex_colors = mesh.vertex_colors.detach().cpu().numpy()
         
-    def auto_normals(self):
-        v0 = self.vertices[self.faces[:, 0], :]
-        v1 = self.vertices[self.faces[:, 1], :]
-        v2 = self.vertices[self.faces[:, 2], :]
-        nrm = safe_normalize(torch.cross(v1 - v0, v2 - v0))
-        self.nrm = nrm
-
-def load_mesh(path, device):
-    mesh_np = trimesh.load(path)
-    vertices = torch.tensor(mesh_np.vertices, device=device, dtype=torch.float)
-    faces = torch.tensor(mesh_np.faces, device=device, dtype=torch.long)
+        # Scale [0, 1] color values properly to [0, 255] format if necessary
+        if vertex_colors.max() <= 1.0:
+            vertex_colors = (vertex_colors * 255).astype(np.uint8)
+        else:
+            vertex_colors = vertex_colors.astype(np.uint8)
+            
+        # Plotly expects an array/list of css rgb strings
+        rgb_strings = [f'rgb({r},{g},{b})' for r, g, b in vertex_colors]
+        mesh_kwargs['vertexcolor'] = rgb_strings
+    else:
+        mesh_kwargs['color'] = 'lightblue'
     
-    # Normalize
-    vmin, vmax = vertices.min(dim=0)[0], vertices.max(dim=0)[0]
-    scale = 1.8 / torch.max(vmax - vmin).item()
-    vertices = vertices - (vmax + vmin) / 2 # Center mesh on origin
-    vertices = vertices * scale # Rescale to [-0.9, 0.9]
-    return Mesh(vertices, faces)
+    # Plot the surface mesh with the kwargs constructed above
+    fig.add_trace(go.Mesh3d(**mesh_kwargs))
+    
+    if plot_normals:
+        x_lines, y_lines, z_lines = [], [], []
 
-def compute_sdf(points, vertices, faces):
-    face_vertices = kaolin.ops.mesh.index_vertices_by_faces(vertices.clone().unsqueeze(0), faces)
-    distance = kaolin.metrics.trianglemesh.point_to_mesh_distance(points.unsqueeze(0), face_vertices)[0]
-    with torch.no_grad():
-        sign = (kaolin.ops.mesh.check_sign(vertices.unsqueeze(0), faces, points.unsqueeze(0))<1).float() * 2 - 1
-    sdf = (sign*distance).squeeze(0)
-    return sdf
+        for i in range(0, len(v), step):
+            x_lines.extend([v[i, 0], v[i, 0] + n[i, 0] * normal_length, None])
+            y_lines.extend([v[i, 1], v[i, 1] + n[i, 1] * normal_length, None])
+            z_lines.extend([v[i, 2], v[i, 2] + n[i, 2] * normal_length, None])
+            
+        fig.add_trace(go.Scatter3d(
+            x=x_lines,
+            y=y_lines,
+            z=z_lines,
+            mode='lines',
+            line=dict(color='red', width=2),
+            name='Normals'
+        ))
+    
+    if plot_wireframe:
+        edges_x = []
+        edges_y = []
+        edges_z = []
+        for i, j, k in f:
+            # Edge 1: vertex i to j
+            edges_x.extend([v[i, 0], v[j, 0], None])
+            edges_y.extend([v[i, 1], v[j, 1], None])
+            edges_z.extend([v[i, 2], v[j, 2], None])
+            # Edge 2: vertex j to k
+            edges_x.extend([v[j, 0], v[k, 0], None])
+            edges_y.extend([v[j, 1], v[k, 1], None])
+            edges_z.extend([v[j, 2], v[k, 2], None])
+            # Edge 3: vertex k to i
+            edges_x.extend([v[k, 0], v[i, 0], None])
+            edges_y.extend([v[k, 1], v[i, 1], None])
+            edges_z.extend([v[k, 2], v[i, 2], None])
+        
+        fig.add_trace(go.Scatter3d(
+            x=edges_x,
+            y=edges_y,
+            z=edges_z,
+            mode='lines',
+            line=dict(color='darkblue', width=2),
+            name='Mesh Edges',
+            showlegend=True
+        ))
+        
+    fig.update_layout(
+        scene=dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z',
+            aspectmode='data'
+        ),
+        title='Mesh rendering',
+        width=800,
+        height=800
+    )
 
-def sample_random_points(n, mesh):
-    pts_random = (torch.rand((n//2,3),device='cuda') - 0.5) * 2
-    pts_surface = kaolin.ops.mesh.sample_points(mesh.vertices.unsqueeze(0), mesh.faces, 500)[0].squeeze(0)
-    pts_surface += torch.randn_like(pts_surface) * 0.05
-    pts = torch.cat([pts_random, pts_surface])
-    return pts
-
-def xfm_points(points, matrix):
-    '''Transform points.
-    Args:
-        points: Tensor containing 3D points with shape [minibatch_size, num_vertices, 3] or [1, num_vertices, 3]
-        matrix: A 4x4 transform matrix with shape [minibatch_size, 4, 4]
-        use_python: Use PyTorch's torch.matmul (for validation)
-    Returns:
-        Transformed points in homogeneous 4D with shape [minibatch_size, num_vertices, 4].
-    '''
-    out = torch.matmul(
-        torch.nn.functional.pad(points, pad=(0, 1), mode='constant', value=1.0), torch.transpose(matrix, 1, 2))
-    if torch.is_anomaly_enabled():
-        assert torch.all(torch.isfinite(out)), "Output of xfm_points contains inf or NaN"
-    return out
-
-def interpolate(attr, rast, attr_idx, rast_db=None):
-    return dr.interpolate(
-        attr, rast, attr_idx, rast_db=rast_db,
-        diff_attrs=None if rast_db is None else 'all')
+    fig.show()
