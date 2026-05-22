@@ -26,6 +26,11 @@ add_executable(mc_backward
     march/csrc/mc.cu
 )
 
+add_executable(mc_backward_color
+    examples/cuda/mc_backward_color.cu
+    march/csrc/mc.cu
+)
+
 add_executable(pc_to_voxel_grid
     examples/cuda/pc_to_voxel_grid.cu
     march/csrc/grid.cu
@@ -36,6 +41,9 @@ target_link_libraries(mc_forward PRIVATE
     cudart
 )
 target_link_libraries(mc_backward PRIVATE 
+    cudart
+)
+target_link_libraries(mc_backward_color PRIVATE 
     cudart
 )
 target_link_libraries(pc_to_voxel_grid PRIVATE 
@@ -53,6 +61,12 @@ set_target_properties(mc_backward PROPERTIES
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
 
+set_target_properties(mc_backward_color PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+)
+
+
 set_target_properties(pc_to_voxel_grid PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
@@ -69,6 +83,11 @@ target_include_directories(mc_backward PRIVATE
     ${CUDA_TOOLKIT_ROOT_DIR}/include
 )
 
+target_include_directories(mc_backward_color PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/march/csrc
+    ${CUDA_TOOLKIT_ROOT_DIR}/include
+)
+
 target_include_directories(pc_to_voxel_grid PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/march/csrc
     ${CUDA_TOOLKIT_ROOT_DIR}/include
@@ -80,6 +99,10 @@ set_target_properties(mc_forward PROPERTIES
 )
 
 set_target_properties(mc_backward PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+set_target_properties(mc_backward_color PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
