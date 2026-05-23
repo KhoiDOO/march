@@ -284,10 +284,83 @@ namespace grid_wrapper {
 
         return std::make_tuple(verts_tensor, cubes_tensor);
     }
+
+    template <typename Scalar, typename IndexType>
+    std::tuple<torch::Tensor, torch::Tensor> pc_to_voxel_grid_chunk(
+        torch::Tensor points,
+        IndexType res_x,
+        IndexType res_y,
+        IndexType res_z,
+        int chunk_size,
+        int k_threshold,
+        int num_keep,
+        float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z
+    ) {
+        CHECK_INPUT(points);
+        IndexType num_points = points.size(0);
+        int device = points.device().index();
+
+        torch::ScalarType scalarType;   
+        if constexpr (std::is_same<Scalar, float>()) {
+            scalarType = torch::kFloat;
+        } else {
+            scalarType = torch::kHalf;
+        }
+        TORCH_INTERNAL_ASSERT(points.dtype() == scalarType, "points type must match the passed template type");
+
+        torch::ScalarType indexType;
+        if constexpr (std::is_same<IndexType, int>()) {
+            indexType = torch::kInt;
+        } else {
+            indexType = torch::kLong;
+        }
+
+        primitive::Vertex<Scalar>* out_vertices = nullptr;
+        IndexType* out_cubes = nullptr;
+        IndexType out_num_vertices = 0;
+        IndexType out_num_cubes = 0;
+
+        grid::pc_to_voxel_grid_chunk<Scalar, IndexType>(
+            reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(points)),
+            num_points,
+            res_x,
+            res_y,
+            res_z,
+            chunk_size,
+            k_threshold,
+            num_keep,
+            rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
+            &out_vertices,
+            &out_num_vertices,
+            &out_cubes,
+            &out_num_cubes,
+            device
+        );
+
+        auto options_float = torch::TensorOptions().dtype(scalarType).device(points.device());
+        auto options_int = torch::TensorOptions().dtype(indexType).device(points.device());
+
+        torch::Tensor verts_tensor = torch::empty({0}, options_float);
+        torch::Tensor cubes_tensor = torch::empty({0}, options_int);
+
+        if (out_num_vertices > 0 && out_vertices != nullptr) {
+            verts_tensor = torch::from_blob(out_vertices, {out_num_vertices, 3}, options_float).clone();
+            cudaFree(out_vertices);
+        }
+
+        if (out_num_cubes > 0 && out_cubes != nullptr) {
+            cubes_tensor = torch::from_blob(out_cubes, {out_num_cubes, 8}, options_int).clone();
+            cudaFree(out_cubes);
+        }
+
+        return std::make_tuple(verts_tensor, cubes_tensor);
+    }
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    // 32 bit version
+    // ==========================================
+    // 32-bit versions (int)
+    // ==========================================
     pybind11::class_<mc_wrapper::MC_Wrapper<float, int>>(m, "MCFI")
         .def(pybind11::init<>())
         .def("forward", &mc_wrapper::MC_Wrapper<float, int>::forward, 
@@ -297,11 +370,24 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             py::arg("grid_colors") = py::none(), py::arg("adj_colors") = py::none(), py::arg("adj_grid_colors") = py::none());
     
     m.def("pc_to_voxel_grid", &grid_wrapper::pc_to_voxel_grid<float, int>, 
-          "Convert a point cloud to a sparse voxel grid.",
-          pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"), pybind11::arg("num_keep"), 
-          pybind11::arg("rmi_x"), pybind11::arg("rmi_y"), pybind11::arg("rmi_z"), pybind11::arg("rma_x"), pybind11::arg("rma_y"), pybind11::arg("rma_z"));
+        "Convert a point cloud to a sparse voxel grid.",
+        pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), 
+        pybind11::arg("k_threshold"), pybind11::arg("num_keep"), 
+        pybind11::arg("rmi_x"), pybind11::arg("rmi_y"), pybind11::arg("rmi_z"), 
+        pybind11::arg("rma_x"), pybind11::arg("rma_y"), pybind11::arg("rma_z"));
 
-    // 64 bit version
+    m.def("pc_to_voxel_grid_chunk", &grid_wrapper::pc_to_voxel_grid_chunk<float, int>, 
+        "Convert a point cloud to a sparse voxel grid using spatial chunking.",
+        pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), 
+        pybind11::arg("chunk_size"),
+        pybind11::arg("k_threshold"), pybind11::arg("num_keep"), 
+        pybind11::arg("rmi_x"), pybind11::arg("rmi_y"), pybind11::arg("rmi_z"), 
+        pybind11::arg("rma_x"), pybind11::arg("rma_y"), pybind11::arg("rma_z"));
+
+
+    // ==========================================
+    // 64-bit versions (long long)
+    // ==========================================
     pybind11::class_<mc_wrapper::MC_Wrapper<float, long long>>(m, "MCFL")
         .def(pybind11::init<>())
         .def("forward", &mc_wrapper::MC_Wrapper<float, long long>::forward,
@@ -311,7 +397,17 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
             py::arg("grid_colors") = py::none(), py::arg("adj_colors") = py::none(), py::arg("adj_grid_colors") = py::none());
 
     m.def("pc_to_voxel_grid_long", &grid_wrapper::pc_to_voxel_grid<float, long long>, 
-          "Convert a massive point cloud to a sparse voxel grid using 64-bit indices.",
-          pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), pybind11::arg("k_threshold"), pybind11::arg("num_keep"), 
-          pybind11::arg("rmi_x"), pybind11::arg("rmi_y"), pybind11::arg("rmi_z"), pybind11::arg("rma_x"), pybind11::arg("rma_y"), pybind11::arg("rma_z"));
+        "Convert a massive point cloud to a sparse voxel grid using 64-bit indices.",
+        pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), 
+        pybind11::arg("k_threshold"), pybind11::arg("num_keep"), 
+        pybind11::arg("rmi_x"), pybind11::arg("rmi_y"), pybind11::arg("rmi_z"), 
+        pybind11::arg("rma_x"), pybind11::arg("rma_y"), pybind11::arg("rma_z"));
+
+    m.def("pc_to_voxel_grid_chunk_long", &grid_wrapper::pc_to_voxel_grid_chunk<float, long long>, 
+        "Convert a massive point cloud to a sparse voxel grid using spatial chunking and 64-bit indices.",
+        pybind11::arg("points"), pybind11::arg("res_x"), pybind11::arg("res_y"), pybind11::arg("res_z"), 
+        pybind11::arg("chunk_size"),
+        pybind11::arg("k_threshold"), pybind11::arg("num_keep"), 
+        pybind11::arg("rmi_x"), pybind11::arg("rmi_y"), pybind11::arg("rmi_z"), 
+        pybind11::arg("rma_x"), pybind11::arg("rma_y"), pybind11::arg("rma_z"));
 }
