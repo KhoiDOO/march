@@ -1,0 +1,132 @@
+#include "grid.h"
+#include "primitive.h"
+#include <cuda_runtime.h>
+#include <iostream>
+#include <vector>
+#include <random>
+#include <fstream>
+
+using primitive::Vertex;
+using namespace grid;
+
+// Generate a random point cloud inside [0, span) for each axis
+void generate_test_points(std::vector<Vertex<float>>& points, int n_points, float span=1024.0f, unsigned int seed=42u) {
+    points.clear();
+    points.reserve(n_points);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(0.0f, span);
+    for (int i = 0; i < n_points; ++i) {
+        points.push_back({dist(rng), dist(rng), dist(rng)});
+    }
+}
+
+int main() {
+    std::cout << "=== pc_to_voxel_grid_chunk CUDA example ===\n";
+
+    int device = 0;
+    cudaSetDevice(device);
+
+    // Parameters for voxelization
+    int res_x = 128, res_y = 128, res_z = 128;
+    int chunk_size = 64; // Forces 8 chunks (2x2x2) to test boundary logic
+    int k_threshold = 1;
+    int num_keep = 0;
+    float rmi_x = 0.2f, rmi_y = 0.0f, rmi_z = 1.0f; // min corner of the bounding box
+    float rma_x = 1.0f, rma_y = 1.0f, rma_z = 1.0f; // max corner of the bounding box
+
+    // Prepare host points (100k random samples over the 0..1024 cube)
+    const int n_points = 100000;
+    std::vector<Vertex<float>> h_points;
+    generate_test_points(h_points, n_points, 1024.0f, 42u);
+
+    std::cout << "Num input points: " << n_points << "\n";
+    std::cout << "Grid resolution: " << res_x << "x" << res_y << "x" << res_z << "\n";
+    std::cout << "Chunk size: " << chunk_size << "^3\n";
+
+    // Copy points to device
+    Vertex<float>* d_points = nullptr;
+    cudaMalloc(&d_points, n_points * sizeof(Vertex<float>));
+    cudaMemcpy(d_points, h_points.data(), n_points * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
+
+    std::cout << "Copied points to device\n";
+
+    // Outputs (device pointers will be allocated inside the function)
+    Vertex<float>* d_out_vertices = nullptr;
+    int out_num_vertices = 0;
+    int* d_out_cubes = nullptr;
+    int out_num_cubes = 0;
+
+    // Call the voxelization function (explicit instantiation exists for float, int)
+    std::cout << "\nCalling pc_to_voxel_grid_chunk (explicit instantiation for float, int)\n";
+
+    grid::pc_to_voxel_grid_chunk<float,int>(
+        d_points, n_points,
+        res_x, res_y, res_z, chunk_size,
+        k_threshold, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
+        &d_out_vertices, &out_num_vertices,
+        &d_out_cubes, &out_num_cubes,
+        device
+    );
+
+    std::cout << "Output vertices: " << out_num_vertices << "\n";
+    std::cout << "Output cubes: " << out_num_cubes << "\n";
+
+    // Copy results back to host if any
+    std::vector<Vertex<float>> h_out_vertices;
+    std::vector<int> h_out_cubes;
+    if (out_num_vertices > 0) {
+        h_out_vertices.resize(out_num_vertices);
+        cudaMemcpy(h_out_vertices.data(), d_out_vertices, out_num_vertices * sizeof(Vertex<float>), cudaMemcpyDeviceToHost);
+    }
+    if (out_num_cubes > 0) {
+        h_out_cubes.resize(out_num_cubes * 8);
+        cudaMemcpy(h_out_cubes.data(), d_out_cubes, out_num_cubes * 8 * sizeof(int), cudaMemcpyDeviceToHost);
+    }
+
+    // Save vertices to OBJ for quick inspection
+    std::string out_filename = "pc_to_voxel_grid_chunk_output.obj";
+    std::ofstream obj(out_filename);
+    for (const auto &v : h_out_vertices) {
+        obj << "v " << v.x << " " << v.y << " " << v.z << "\n";
+    }
+    // Save cube indices as faces (as 8-tuples per cube, not standard OBJ faces)
+    obj << "# cubes (8 vertex indices per cube):\n";
+    for (int i = 0; i < (int)h_out_cubes.size(); i += 8) {
+        obj << "# cube ";
+        for (int j = 0; j < 8; ++j) obj << h_out_cubes[i + j] << (j+1==8?"":" ");
+        obj << "\n";
+    }
+    obj.close();
+
+    std::cout << "Wrote " << out_filename << "\n";
+
+    // Call the voxelization function (explicit instantiation exists for float, long long)
+    std::cout << "\nCalling pc_to_voxel_grid_chunk (explicit instantiation for float, long long)\n";
+
+    Vertex<float>* d_out_vertices_ll = nullptr;
+    long long out_num_vertices_ll = 0;
+    long long* d_out_cubes_ll = nullptr;
+    long long out_num_cubes_ll = 0;
+
+    grid::pc_to_voxel_grid_chunk<float,long long>(
+        d_points, n_points,
+        res_x, res_y, res_z, chunk_size,
+        k_threshold, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
+        &d_out_vertices_ll, &out_num_vertices_ll,
+        &d_out_cubes_ll, &out_num_cubes_ll,
+        device
+    );
+
+    std::cout << "Output vertices (long long): " << out_num_vertices_ll << "\n";
+    std::cout << "Output cubes (long long): " << out_num_cubes_ll << "\n";
+
+    // Cleanup
+    cudaFree(d_points);
+    if (d_out_vertices) cudaFree(d_out_vertices);
+    if (d_out_cubes) cudaFree(d_out_cubes);
+    if (d_out_vertices_ll) cudaFree(d_out_vertices_ll);
+    if (d_out_cubes_ll) cudaFree(d_out_cubes_ll);
+
+    std::cout << "=== Done ===\n";
+    return 0;
+}
