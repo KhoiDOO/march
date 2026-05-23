@@ -9,14 +9,14 @@ using primitive::EdgeKey;
 
 //  Coordinate system
 //
-//       z
+//       y
 //       |
 //       |
 //       |
 //       0-----x
 //      /
 //     /
-//    y
+//    z
 //
 
 // Cell Corners
