@@ -3,6 +3,8 @@ import numpy as np
 
 from .._C import pc_to_voxel_grid as pc_to_voxel_grid_cuda
 from .._C import pc_to_voxel_grid_long as pc_to_voxel_grid_long_cuda
+from .._C import pc_to_voxel_grid_chunk as pc_to_voxel_grid_chunk_cuda
+from .._C import pc_to_voxel_grid_chunk_long as pc_to_voxel_grid_chunk_long_cuda
 
 
 def create_voxel_grid_torch(res_x, res_y, res_z, bounds, dtype=torch.float32, device='cpu'):
@@ -174,3 +176,95 @@ def pc_to_voxel_grid_long(points, res_x, res_y, res_z, k=1, num_keep=0, rmi_x=1.
         voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
     """
     return pc_to_voxel_grid_long_cuda(points, res_x, res_y, res_z, k, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z)
+
+def pc_to_voxel_grid_chunk(points, res_x, res_y, res_z, chunk_size=256, k=1, num_keep=0, rmi_x=1.0, rmi_y=1.0, rmi_z=1.0, rma_x=1.0, rma_y=1.0, rma_z=1.0):
+    """
+    Convert a point cloud to a sparse voxel grid using spatial chunking.
+    
+    Args:
+        points: Tensor of shape (num_points, 3) containing point cloud coordinates
+        res_x, res_y, res_z: Resolution (number of voxels) in each dimension
+        chunk_size: Size of the cubic chunk to process at one time to save VRAM (default: 256)
+        k: Minimum number of points required in a voxel to be considered occupied (default: 1)
+        num_keep: Number of adjacent voxels to dilate and keep (default: 0)
+        rmi_x, rmi_y, rmi_z: Minimum keeping ratio of the minimum bounding box
+        rma_x, rma_y, rma_z: Maximum keeping ratio of the maximum bounding box
+
+    Returns:
+        voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
+        voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
+    """
+    return pc_to_voxel_grid_chunk_cuda(points, res_x, res_y, res_z, chunk_size, k, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z)
+
+def pc_to_voxel_grid_chunk_long(points, res_x, res_y, res_z, chunk_size=256, k=1, num_keep=0, rmi_x=1.0, rmi_y=1.0, rmi_z=1.0, rma_x=1.0, rma_y=1.0, rma_z=1.0):
+    """
+    Convert a massive point cloud to a sparse voxel grid using spatial chunking and 64-bit indices.
+    
+    Args:
+        points: Tensor of shape (num_points, 3) containing point cloud coordinates
+        res_x, res_y, res_z: Resolution (number of voxels) in each dimension
+        chunk_size: Size of the cubic chunk to process at one time to save VRAM (default: 256)
+        k: Minimum number of points required in a voxel to be considered occupied (default: 1)
+        num_keep: Number of adjacent voxels to dilate and keep (default: 0)
+        rmi_x, rmi_y, rmi_z: Minimum keeping ratio of the minimum bounding box
+        rma_x, rma_y, rma_z: Maximum keeping ratio of the maximum bounding box
+
+    Returns:
+        voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
+        voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
+    """
+    return pc_to_voxel_grid_chunk_long_cuda(points, res_x, res_y, res_z, chunk_size, k, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z)
+
+def pc2vg(points, res_x, res_y, res_z, chunk_size=None, k=1, num_keep=0, rmi_x=1.0, rmi_y=1.0, rmi_z=1.0, rma_x=1.0, rma_y=1.0, rma_z=1.0):
+    """
+    Unified Point Cloud to Voxel Grid function.
+    Automatically selects between 32-bit/64-bit and standard/chunked kernels 
+    based on the grid resolution and chunk_size parameter.
+    
+    Args:
+        points: Tensor of shape (num_points, 3) containing point cloud coordinates
+        res_x, res_y, res_z: Resolution (number of voxels) in each dimension
+        chunk_size: Size of cubic chunk for VRAM savings. Set to 0 or None to use dense grid. (default: None)
+        k: Minimum number of points required in a voxel to be considered occupied (default: 1)
+        num_keep: Number of adjacent voxels to dilate and keep (default: 0)
+        rmi_x, rmi_y, rmi_z: Minimum keeping ratio of the minimum bounding box
+        rma_x, rma_y, rma_z: Maximum keeping ratio of the maximum bounding box
+
+    Returns:
+        voxel_grid: Tensor of shape (num_occupied_voxels, 3) containing coordinates of occupied voxels
+        voxel_indices: Tensor of shape (num_occupied_voxels,) containing linear indices of occupied voxels
+    """
+    
+    # Calculate maximum possible vertices in the dense grid
+    max_dense_verts = (res_x + 1) * (res_y + 1) * (res_z + 1)
+    
+    # A 32-bit signed integer caps out at 2,147,483,647.
+    # If our dense grid exceeds this, we MUST use the 64-bit (long) version to prevent overflow.
+    use_long = max_dense_verts >= 2147483647
+    
+    # Decide whether to use spatial tiling (chunking)
+    use_chunking = chunk_size is not None and chunk_size > 0
+    
+    # Route to the appropriate CUDA kernel
+    if use_chunking:
+        if use_long:
+            return pc_to_voxel_grid_chunk_long_cuda(
+                points, res_x, res_y, res_z, chunk_size, k, num_keep, 
+                rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z
+            )
+        else:
+            return pc_to_voxel_grid_chunk_cuda(
+                points, res_x, res_y, res_z, chunk_size, k, num_keep, 
+                rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z
+            )
+    else:
+        if use_long:
+            return pc_to_voxel_grid_long_cuda(
+                points, res_x, res_y, res_z, k, num_keep, 
+                rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z
+            )
+        else:
+            return pc_to_voxel_grid_cuda(
+                points, res_x, res_y, res_z, k, num_keep, 
+                rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z
+            )
