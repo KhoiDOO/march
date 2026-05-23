@@ -1,3 +1,2 @@
-examples/diffrender/diffmc_bunny_sparse.ipynb filter=lfs diff=lfs merge=lfs -text
-examples/diffrender/diffmc_bunny_sparse_long.ipynb filter=lfs diff=lfs merge=lfs -text
 examples/diffrender/diffmc_bunny_color.ipynb filter=lfs diff=lfs merge=lfs -text
+examples/diffrender/diffmc_bunny.ipynb filter=lfs diff=lfs merge=lfs -text
