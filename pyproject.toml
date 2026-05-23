@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "march"
-version = "0.1.6"
+version = "0.1.7"
 description = "Marching Cubes algorithm implementation for extracting meshes from scalar fields using PyTorch"
 readme = "README.md"
 license = {text = "MIT"}
