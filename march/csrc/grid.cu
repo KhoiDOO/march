@@ -191,14 +191,20 @@ namespace grid {
             IndexType stride_z = (res_y + 1) * (res_x + 1);
 
             IndexType base = out_idx * 8;
-            int counter = 0;
-            // Iterate in identically the same PyTorch order requested (v0 -> v7 mapping by dx changing fastest)
+            
+            // We still need the loops to visit all 8 corners of the cube
             for(int dz=0; dz<=1; ++dz) {
                 for(int dy=0; dy<=1; ++dy) {
                     for(int dx=0; dx<=1; ++dx) {
                         IndexType v_idx = (k + dz) * stride_z + (j + dy) * stride_y + (i + dx);
-                        out_cubes[base + counter] = vertex_prefix_sum[v_idx];
-                        counter++;
+                        
+                        int u = dx;  // Bit 0: Left-to-right axis
+                        int v = dz;      // Bit 1: Back-to-front is now Z
+                        int w = dy;      // Bit 2: Upward is now Y
+                        
+                        int topo_idx = (w << 2) | (v << 1) | u;
+                        
+                        out_cubes[base + topo_idx] = vertex_prefix_sum[v_idx];
                     }
                 }
             }
