@@ -20,8 +20,8 @@ class DMC(nn.Module):
             
         class DMCFunction(Function):
             @staticmethod
-            def forward(ctx, grid_vertices, cubes, values, iso, grid_colors):
-                verts, tris, out_colors = mc.forward(grid_vertices, cubes, values, iso, grid_colors)
+            def forward(ctx, grid_vertices, voxels, values, iso, grid_colors):
+                verts, tris, out_colors = mc.forward(grid_vertices, voxels, values, iso, grid_colors)
                 ctx.isovalue = iso
                 ctx.save_for_backward(grid_vertices, values, grid_colors)
                 return verts, tris, out_colors
@@ -54,7 +54,7 @@ class DMC(nn.Module):
                 
                 # Return gradients matching the order of forward() arguments:
                 # 1. grid_vertices -> None
-                # 2. cubes -> None
+                # 2. voxels -> None
                 # 3. values -> adj_values
                 # 4. iso -> None
                 # 5. grid_colors -> adj_grid_colors
@@ -63,7 +63,7 @@ class DMC(nn.Module):
         self.func = DMCFunction
         self._mc = mc  # Keep reference alive
     
-    def forward(self, grid_vertices, cubes, values, iso, grid_colors=None):
+    def forward(self, grid_vertices, voxels, values, iso, grid_colors=None):
         if values.min() >= iso or values.max() <= iso:
             empty_verts = torch.zeros((0, 3), dtype=self.vdtype, device=grid_vertices.device)
             empty_tris = torch.zeros((0, 3), dtype=self.cdtype, device=grid_vertices.device)
@@ -73,7 +73,7 @@ class DMC(nn.Module):
                 return empty_verts, empty_tris, empty_colors
             return empty_verts, empty_tris
         
-        verts, tris, out_colors = self.func.apply(grid_vertices, cubes, values, iso, grid_colors)
+        verts, tris, out_colors = self.func.apply(grid_vertices, voxels, values, iso, grid_colors)
         
         if grid_colors is not None:
             return verts, tris.long(), out_colors
