@@ -18,8 +18,8 @@ namespace grid {
         float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<Scalar>** out_vertices,
         IndexType* out_num_vertices,
-        IndexType** out_cubes,
-        IndexType* out_num_cubes,
+        IndexType** out_voxels,
+        IndexType* out_num_voxels,
         int device
     );
 
@@ -36,8 +36,8 @@ namespace grid {
         float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<Scalar>** out_vertices,
         IndexType* out_num_vertices,
-        IndexType** out_cubes,
-        IndexType* out_num_cubes,
+        IndexType** out_voxels,
+        IndexType* out_num_voxels,
         int device
     );
 }
