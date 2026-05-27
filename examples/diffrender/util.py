@@ -29,10 +29,11 @@ def visualize_mesh(
         vertex_colors = mesh.vertex_colors.detach().cpu().numpy()
         
         # Scale [0, 1] color values properly to [0, 255] format if necessary
-        if vertex_colors.max() <= 1.0:
+        if np.issubdtype(vertex_colors.dtype, np.floating) and vertex_colors.max() <= 2.0:
+            vertex_colors = np.clip(vertex_colors, 0.0, 1.0)
             vertex_colors = (vertex_colors * 255).astype(np.uint8)
         else:
-            vertex_colors = vertex_colors.astype(np.uint8)
+            vertex_colors = np.clip(vertex_colors, 0, 255).astype(np.uint8)
             
         # Plotly expects an array/list of css rgb strings
         rgb_strings = [f'rgb({r},{g},{b})' for r, g, b in vertex_colors]
