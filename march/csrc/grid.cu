@@ -127,7 +127,7 @@ namespace grid {
         IndexType j = (voxel_idx % (p_res_y * p_res_x)) / p_res_x;
         IndexType i = voxel_idx % p_res_x;
 
-        // Turn off active flags for the padded boundary so we don't generate duplicate cubes
+        // Turn off active flags for the padded boundary so we don't generate duplicate voxels
         if (i < core_start_x || i >= core_end_x ||
             j < core_start_y || j >= core_end_y ||
             k < core_start_z || k >= core_end_z) {
@@ -153,7 +153,7 @@ namespace grid {
             IndexType stride_y = res_x + 1;
             IndexType stride_z = (res_y + 1) * (res_x + 1);
             
-            // Mark all 8 vertices of this cube
+            // Mark all 8 vertices of this voxel
             for(int dz=0; dz<=1; ++dz) {
                 for(int dy=0; dy<=1; ++dy) {
                     for(int dx=0; dx<=1; ++dx) {
@@ -237,11 +237,11 @@ namespace grid {
     }
 
     template <typename IndexType>
-    __global__ void generate_sparse_cubes_kernel(
+    __global__ void generate_sparse_voxels_kernel(
         const uint8_t* voxel_active_flags,
-        const IndexType* cube_prefix_sum,
+        const IndexType* voxel_prefix_sum,
         const IndexType* vertex_prefix_sum,
-        IndexType* out_cubes,
+        IndexType* out_voxels,
         IndexType res_x, IndexType res_y, IndexType res_z
     ) {
         IndexType voxel_idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -249,7 +249,7 @@ namespace grid {
         if (voxel_idx >= total_voxels) return;
 
         if (voxel_active_flags[voxel_idx]) {
-            IndexType out_idx = cube_prefix_sum[voxel_idx];
+            IndexType out_idx = voxel_prefix_sum[voxel_idx];
 
             IndexType k = voxel_idx / (res_y * res_x);
             IndexType j = (voxel_idx % (res_y * res_x)) / res_x;
@@ -260,20 +260,22 @@ namespace grid {
 
             IndexType base = out_idx * 8;
             
-            // We still need the loops to visit all 8 corners of the cube
+            // We still need the loops to visit all 8 corners of the voxel
             for(int dz=0; dz<=1; ++dz) {
                 for(int dy=0; dy<=1; ++dy) {
                     for(int dx=0; dx<=1; ++dx) {
                         IndexType v_idx = (k + dz) * stride_z + (j + dy) * stride_y + (i + dx);
                         
-                        int u = dx;  // Bit 0: Left-to-right axis
-                        int v = dz;      // Bit 1: Back-to-front is now Z
-                        int w = dy;      // Bit 2: Upward is now Y
+                        // int u = dx;  // Bit 0: Left-to-right axis
+                        // int v = dz;      // Bit 1: Back-to-front is now Z
+                        // int w = dy;      // Bit 2: Upward is now Y
                         
-                        int topo_idx = (w << 2) | (v << 1) | u;
+                        // int topo_idx = (w << 2) | (v << 1) | u;
                         // int topo_idx = dz * 4 + dy * 2 + dx;
+
+                        int topo_idx = (dz << 2) | (dy << 1) | dx;
                         
-                        out_cubes[base + topo_idx] = vertex_prefix_sum[v_idx];
+                        out_voxels[base + topo_idx] = vertex_prefix_sum[v_idx];
                     }
                 }
             }
@@ -297,8 +299,8 @@ namespace grid {
         float rma_z,
         Vertex<Scalar>** out_vertices,
         IndexType* out_num_vertices,
-        IndexType** out_cubes,
-        IndexType* out_num_cubes,
+        IndexType** out_voxels,
+        IndexType* out_num_voxels,
         int device
     ) {
         cudaSetDevice(device);
@@ -362,11 +364,11 @@ namespace grid {
             res_x, res_y, res_z, thrust::raw_pointer_cast(active_vertices.data())
         );
 
-        // 5. Cube Memory Prep & Threshold Check
+        // 5. Voxel Memory Prep & Threshold Check
         thrust::exclusive_scan(active_voxel_flags.begin(), active_voxel_flags.end(), voxel_counts_and_prefix.begin(), (IndexType)0);
 
-        *out_num_cubes = voxel_counts_and_prefix.back() + active_voxel_flags.back();
-        if (*out_num_cubes == 0) return; 
+        *out_num_voxels = voxel_counts_and_prefix.back() + active_voxel_flags.back();
+        if (*out_num_voxels == 0) return; 
 
         // 6. Sparse Vertex Check & Output Assignment
         thrust::device_vector<IndexType> vertex_prefix_sums(total_dense_verts, 0);
@@ -379,7 +381,7 @@ namespace grid {
         *out_num_vertices = vertex_prefix_sums.back() + active_vertices.back();
 
         cudaMalloc(out_vertices, (*out_num_vertices) * sizeof(Vertex<Scalar>));
-        cudaMalloc(out_cubes, (*out_num_cubes) * 8 * sizeof(IndexType));
+        cudaMalloc(out_voxels, (*out_num_voxels) * 8 * sizeof(IndexType));
 
         // 7. Final Generation Kernels Map Values Properly
         IndexType blocks_verts = (total_dense_verts + threads - 1) / threads;
@@ -389,12 +391,12 @@ namespace grid {
             cx, cy, cz, res_x, res_y, res_z
         );
 
-        IndexType blocks_cubes = (total_voxels + threads - 1) / threads;
-        generate_sparse_cubes_kernel<<<blocks_cubes, threads>>>(
+        IndexType blocks_voxels = (total_voxels + threads - 1) / threads;
+        generate_sparse_voxels_kernel<<<blocks_voxels, threads>>>(
             thrust::raw_pointer_cast(active_voxel_flags.data()), 
             thrust::raw_pointer_cast(voxel_counts_and_prefix.data()), 
             thrust::raw_pointer_cast(vertex_prefix_sums.data()),
-            *out_cubes, res_x, res_y, res_z
+            *out_voxels, res_x, res_y, res_z
         );
         cudaDeviceSynchronize();
     }
@@ -409,7 +411,7 @@ namespace grid {
         float rmi_x, float rmi_y, float rmi_z,
         float rma_x, float rma_y, float rma_z,
         Vertex<Scalar>** out_vertices, IndexType* out_num_vertices,
-        IndexType** out_cubes, IndexType* out_num_cubes,
+        IndexType** out_voxels, IndexType* out_num_voxels,
         int device
     ) {
         cudaSetDevice(device);
@@ -429,7 +431,7 @@ namespace grid {
 
         // Host accumulation arrays (Memory is bounded by actual geometry, not grid resolution)
         std::vector<Vertex<Scalar>> host_all_vertices;
-        std::vector<IndexType> host_all_cubes;
+        std::vector<IndexType> host_all_voxels;
         IndexType total_verts_so_far = 0;
         IndexType threads = 256;
 
@@ -486,7 +488,7 @@ namespace grid {
                         );
                     }
                     
-                    // 4. Filter out Padded Bounds (Prevents duplicate cubes between chunks)
+                    // 4. Filter out Padded Bounds (Prevents duplicate voxels between chunks)
                     IndexType filter_blocks = (total_voxels + threads - 1) / threads;
                     filter_core_voxels_kernel<<<filter_blocks, threads>>>(
                         thrust::raw_pointer_cast(active_voxel_flags.data()),
@@ -504,11 +506,11 @@ namespace grid {
                     );
 
                     // 6. Prefix Sums
-                    thrust::device_vector<IndexType> cube_prefix_sums(total_voxels, 0);
-                    thrust::exclusive_scan(active_voxel_flags.begin(), active_voxel_flags.end(), cube_prefix_sums.begin(), (IndexType)0);
-                    IndexType chunk_num_cubes = cube_prefix_sums.back() + (IndexType)active_voxel_flags.back();
+                    thrust::device_vector<IndexType> voxel_prefix_sums(total_voxels, 0);
+                    thrust::exclusive_scan(active_voxel_flags.begin(), active_voxel_flags.end(), voxel_prefix_sums.begin(), (IndexType)0);
+                    IndexType chunk_num_voxels = voxel_prefix_sums.back() + (IndexType)active_voxel_flags.back();
 
-                    if (chunk_num_cubes == 0) continue;
+                    if (chunk_num_voxels == 0) continue;
 
                     thrust::device_vector<IndexType> vertex_prefix_sums(total_dense_verts, 0);
                     thrust::exclusive_scan(active_vertices.begin(), active_vertices.end(), vertex_prefix_sums.begin(), (IndexType)0);
@@ -516,7 +518,7 @@ namespace grid {
 
                     // 7. Extract Geometry
                     thrust::device_vector<Vertex<Scalar>> d_chunk_verts(chunk_num_vertices);
-                    thrust::device_vector<IndexType> d_chunk_cubes(chunk_num_cubes * 8);
+                    thrust::device_vector<IndexType> d_chunk_voxels(chunk_num_voxels * 8);
 
                     IndexType blocks_verts = (total_dense_verts + threads - 1) / threads;
                     generate_sparse_vertices_kernel<<<blocks_verts, threads>>>(
@@ -527,26 +529,26 @@ namespace grid {
                         cx, cy, cz, p_res_x, p_res_y, p_res_z
                     );
 
-                    IndexType blocks_cubes = (total_voxels + threads - 1) / threads;
-                    generate_sparse_cubes_kernel<<<blocks_cubes, threads>>>(
+                    IndexType blocks_voxels = (total_voxels + threads - 1) / threads;
+                    generate_sparse_voxels_kernel<<<blocks_voxels, threads>>>(
                         thrust::raw_pointer_cast(active_voxel_flags.data()), 
-                        thrust::raw_pointer_cast(cube_prefix_sums.data()), 
+                        thrust::raw_pointer_cast(voxel_prefix_sums.data()), 
                         thrust::raw_pointer_cast(vertex_prefix_sums.data()),
-                        thrust::raw_pointer_cast(d_chunk_cubes.data()), 
+                        thrust::raw_pointer_cast(d_chunk_voxels.data()), 
                         p_res_x, p_res_y, p_res_z
                     );
 
                     // 8. Accumulate on Host
                     std::vector<Vertex<Scalar>> h_chunk_verts(chunk_num_vertices);
-                    std::vector<IndexType> h_chunk_cubes(chunk_num_cubes * 8);
+                    std::vector<IndexType> h_chunk_voxels(chunk_num_voxels * 8);
                     thrust::copy(d_chunk_verts.begin(), d_chunk_verts.end(), h_chunk_verts.begin());
-                    thrust::copy(d_chunk_cubes.begin(), d_chunk_cubes.end(), h_chunk_cubes.begin());
+                    thrust::copy(d_chunk_voxels.begin(), d_chunk_voxels.end(), h_chunk_voxels.begin());
 
                     host_all_vertices.insert(host_all_vertices.end(), h_chunk_verts.begin(), h_chunk_verts.end());
-                    
-                    // Offset cube corner indices to point to the correct position in the global array
-                    for(auto& idx : h_chunk_cubes) {
-                        host_all_cubes.push_back(idx + total_verts_so_far);
+                    host_all_voxels.insert(host_all_voxels.end(), h_chunk_voxels.begin(), h_chunk_voxels.end());
+                    // Offset voxel corner indices to point to the correct position in the global array
+                    for(auto& idx : h_chunk_voxels) {
+                        host_all_voxels.push_back(idx + total_verts_so_far);
                     }
                     total_verts_so_far += chunk_num_vertices;
                 }
@@ -555,13 +557,13 @@ namespace grid {
 
         // 9. Push final dense result back to GPU
         *out_num_vertices = host_all_vertices.size();
-        *out_num_cubes = host_all_cubes.size() / 8;
+        *out_num_voxels = host_all_voxels.size() / 8;
 
         if (*out_num_vertices > 0) {
             cudaMalloc(out_vertices, (*out_num_vertices) * sizeof(Vertex<Scalar>));
-            cudaMalloc(out_cubes, (*out_num_cubes) * 8 * sizeof(IndexType));
+            cudaMalloc(out_voxels, (*out_num_voxels) * 8 * sizeof(IndexType));
             cudaMemcpy(*out_vertices, host_all_vertices.data(), (*out_num_vertices) * sizeof(Vertex<Scalar>), cudaMemcpyHostToDevice);
-            cudaMemcpy(*out_cubes, host_all_cubes.data(), (*out_num_cubes) * 8 * sizeof(IndexType), cudaMemcpyHostToDevice);
+            cudaMemcpy(*out_voxels, host_all_voxels.data(), (*out_num_voxels) * 8 * sizeof(IndexType), cudaMemcpyHostToDevice);
         }
     }
 
@@ -571,7 +573,7 @@ namespace grid {
         int res_x, int res_y, int res_z, int k_threshold, int num_keep, 
         float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<float>** out_vertices, int* out_num_vertices,
-        int** out_cubes, int* out_num_cubes,
+        int** out_voxels, int* out_num_voxels,
         int device
     );
 
@@ -580,7 +582,7 @@ namespace grid {
         long long res_x, long long res_y, long long res_z, int k_threshold, int num_keep, 
         float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<float>** out_vertices, long long* out_num_vertices,
-        long long** out_cubes, long long* out_num_cubes,
+        long long** out_voxels, long long* out_num_voxels,
         int device
     );
 
@@ -589,7 +591,7 @@ namespace grid {
         int res_x, int res_y, int res_z, int chunk_size, int k_threshold, int num_keep, 
         float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<float>** out_vertices, int* out_num_vertices,
-        int** out_cubes, int* out_num_cubes,
+        int** out_voxels, int* out_num_voxels,
         int device
     );
 
@@ -598,7 +600,7 @@ namespace grid {
         long long res_x, long long res_y, long long res_z, int chunk_size, int k_threshold, int num_keep, 
         float rmi_x, float rmi_y, float rmi_z, float rma_x, float rma_y, float rma_z,
         Vertex<float>** out_vertices, long long* out_num_vertices,
-        long long** out_cubes, long long* out_num_cubes,
+        long long** out_voxels, long long* out_num_voxels,
         int device
     );
 }
