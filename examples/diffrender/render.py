@@ -22,7 +22,7 @@ def get_random_camera_batch(batch_size, fovy = np.deg2rad(45), iter_res=[512,512
     return kal.render.camera.Camera.from_args(
         eye=camera_pos + torch.rand((batch_size, 1), device=device) * 0.5 - 0.25,
         at=torch.zeros(batch_size, 3),
-        up=torch.tensor([[0., 0., 1.]]),
+        up=torch.tensor([[0., 1., 0.]]),
         fov=fovy,
         near=cam_near_far[0], far=cam_near_far[1],
         height=iter_res[0], width=iter_res[1],
@@ -35,7 +35,7 @@ def get_rotate_camera(itr, fovy = np.deg2rad(45), iter_res=[512,512], cam_near_f
     return kal.render.camera.Camera.from_args(
         eye=camera_pos,
         at=torch.zeros(3),
-        up=torch.tensor([0., 0., 1.]),
+        up=torch.tensor([0., 1., 0.]),
         fov=fovy,
         near=cam_near_far[0], far=cam_near_far[1],
         height=iter_res[0], width=iter_res[1],
