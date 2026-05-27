@@ -50,16 +50,16 @@ namespace mc_wrapper {
 
         std::tuple<torch::Tensor, torch::Tensor, std::optional<torch::Tensor>> forward(
             torch::Tensor grid_vertices, // N * 3 array of grid vertex positions
-            torch::Tensor cubes, // (N-1) * 8 array of cube vertex indices
+            torch::Tensor voxels, // (N-1) * 8 array of voxel vertex indices
             torch::Tensor values, // N array of scalar values at grid vertices
             Scalar iso,
             std::optional<torch::Tensor> grid_colors = std::nullopt // N * 3 array of grid vertex colors (optional)
         ) {
             CHECK_INPUT(grid_vertices);
-            CHECK_INPUT(cubes);
+            CHECK_INPUT(voxels);
             CHECK_INPUT(values);
 
-            IndexType n_cubes = cubes.size(0);
+            IndexType n_voxels = voxels.size(0);
             int device = grid_vertices.device().index();
 
             torch::ScalarType scalarType;   
@@ -83,10 +83,10 @@ namespace mc_wrapper {
             {
                 indexType = torch::kLong;
             }
-            TORCH_INTERNAL_ASSERT(cubes.dtype() == indexType, "cubes type must match the mc class");
+            TORCH_INTERNAL_ASSERT(voxels.dtype() == indexType, "voxels type must match the mc class");
 
             const auto* grid_vertices_ptr = reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(grid_vertices));
-            const auto* cubes_ptr = get_tensor_ptr_const<IndexType>(cubes);
+            const auto* voxels_ptr = get_tensor_ptr_const<IndexType>(voxels);
             const auto* values_ptr = get_tensor_ptr_const<Scalar>(values);
 
             const primitive::Vertex<Scalar>* grid_colors_ptr = nullptr;
@@ -100,9 +100,9 @@ namespace mc_wrapper {
             mc.forward(
                 grid_vertices_ptr,
                 grid_colors_ptr,
-                cubes_ptr,
+                voxels_ptr,
                 values_ptr,
-                n_cubes,
+                n_voxels,
                 iso,
                 device // device ID
             );
@@ -111,7 +111,7 @@ namespace mc_wrapper {
             IndexType n_tris = mc.n_tris / 3;
 
             auto options_float = torch::TensorOptions().dtype(scalarType).device(grid_vertices.device());
-            auto options_int = torch::TensorOptions().dtype(indexType).device(cubes.device());
+            auto options_int = torch::TensorOptions().dtype(indexType).device(voxels.device());
 
             torch::Tensor verts_tensor = torch::from_blob(
                 mc.verts, {n_verts, 3}, options_float
@@ -246,9 +246,9 @@ namespace grid_wrapper {
         }
 
         primitive::Vertex<Scalar>* out_vertices = nullptr;
-        IndexType* out_cubes = nullptr;
+        IndexType* out_voxels = nullptr;
         IndexType out_num_vertices = 0;
-        IndexType out_num_cubes = 0;
+        IndexType out_num_voxels = 0;
 
         grid::pc_to_voxel_grid<Scalar, IndexType>(
             reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(points)),
@@ -261,8 +261,8 @@ namespace grid_wrapper {
             rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
             &out_vertices,
             &out_num_vertices,
-            &out_cubes,
-            &out_num_cubes,
+            &out_voxels,
+            &out_num_voxels,
             device
         );
 
@@ -270,19 +270,19 @@ namespace grid_wrapper {
         auto options_int = torch::TensorOptions().dtype(indexType).device(points.device());
 
         torch::Tensor verts_tensor = torch::empty({0}, options_float);
-        torch::Tensor cubes_tensor = torch::empty({0}, options_int);
+        torch::Tensor voxels_tensor = torch::empty({0}, options_int);
 
         if (out_num_vertices > 0 && out_vertices != nullptr) {
             verts_tensor = torch::from_blob(out_vertices, {out_num_vertices, 3}, options_float).clone();
             cudaFree(out_vertices);
         }
 
-        if (out_num_cubes > 0 && out_cubes != nullptr) {
-            cubes_tensor = torch::from_blob(out_cubes, {out_num_cubes, 8}, options_int).clone();
-            cudaFree(out_cubes);
+        if (out_num_voxels > 0 && out_voxels != nullptr) {
+            voxels_tensor = torch::from_blob(out_voxels, {out_num_voxels, 8}, options_int).clone();
+            cudaFree(out_voxels);
         }
 
-        return std::make_tuple(verts_tensor, cubes_tensor);
+        return std::make_tuple(verts_tensor, voxels_tensor);
     }
 
     template <typename Scalar, typename IndexType>
@@ -316,9 +316,9 @@ namespace grid_wrapper {
         }
 
         primitive::Vertex<Scalar>* out_vertices = nullptr;
-        IndexType* out_cubes = nullptr;
+        IndexType* out_voxels = nullptr;
         IndexType out_num_vertices = 0;
-        IndexType out_num_cubes = 0;
+        IndexType out_num_voxels = 0;
 
         grid::pc_to_voxel_grid_chunk<Scalar, IndexType>(
             reinterpret_cast<primitive::Vertex<Scalar> const *>(get_tensor_ptr_const<Scalar>(points)),
@@ -332,8 +332,8 @@ namespace grid_wrapper {
             rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
             &out_vertices,
             &out_num_vertices,
-            &out_cubes,
-            &out_num_cubes,
+            &out_voxels,
+            &out_num_voxels,
             device
         );
 
@@ -341,19 +341,19 @@ namespace grid_wrapper {
         auto options_int = torch::TensorOptions().dtype(indexType).device(points.device());
 
         torch::Tensor verts_tensor = torch::empty({0}, options_float);
-        torch::Tensor cubes_tensor = torch::empty({0}, options_int);
+        torch::Tensor voxels_tensor = torch::empty({0}, options_int);
 
         if (out_num_vertices > 0 && out_vertices != nullptr) {
             verts_tensor = torch::from_blob(out_vertices, {out_num_vertices, 3}, options_float).clone();
             cudaFree(out_vertices);
         }
 
-        if (out_num_cubes > 0 && out_cubes != nullptr) {
-            cubes_tensor = torch::from_blob(out_cubes, {out_num_cubes, 8}, options_int).clone();
-            cudaFree(out_cubes);
+        if (out_num_voxels > 0 && out_voxels != nullptr) {
+            voxels_tensor = torch::from_blob(out_voxels, {out_num_voxels, 8}, options_int).clone();
+            cudaFree(out_voxels);
         }
 
-        return std::make_tuple(verts_tensor, cubes_tensor);
+        return std::make_tuple(verts_tensor, voxels_tensor);
     }
 }
 
@@ -364,7 +364,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     pybind11::class_<mc_wrapper::MC_Wrapper<float, int>>(m, "MCFI")
         .def(pybind11::init<>())
         .def("forward", &mc_wrapper::MC_Wrapper<float, int>::forward, 
-            py::arg("grid_vertices"), py::arg("cubes"), py::arg("values"), py::arg("iso"), py::arg("grid_colors") = py::none())
+            py::arg("grid_vertices"), py::arg("voxels"), py::arg("values"), py::arg("iso"), py::arg("grid_colors") = py::none())
         .def("backward", &mc_wrapper::MC_Wrapper<float, int>::backward,
             py::arg("grid_vertices"), py::arg("values"), py::arg("adj_verts"), py::arg("adj_values"), py::arg("iso"), 
             py::arg("grid_colors") = py::none(), py::arg("adj_colors") = py::none(), py::arg("adj_grid_colors") = py::none());
@@ -391,7 +391,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     pybind11::class_<mc_wrapper::MC_Wrapper<float, long long>>(m, "MCFL")
         .def(pybind11::init<>())
         .def("forward", &mc_wrapper::MC_Wrapper<float, long long>::forward,
-            py::arg("grid_vertices"), py::arg("cubes"), py::arg("values"), py::arg("iso"), py::arg("grid_colors") = py::none())
+            py::arg("grid_vertices"), py::arg("voxels"), py::arg("values"), py::arg("iso"), py::arg("grid_colors") = py::none())
         .def("backward", &mc_wrapper::MC_Wrapper<float, long long>::backward,
             py::arg("grid_vertices"), py::arg("values"), py::arg("adj_verts"), py::arg("adj_values"), py::arg("iso"), 
             py::arg("grid_colors") = py::none(), py::arg("adj_colors") = py::none(), py::arg("adj_grid_colors") = py::none());
