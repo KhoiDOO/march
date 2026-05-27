@@ -9,7 +9,7 @@ using primitive::Vertex;
 using primitive::Triangle;
 using namespace mc;
 
-// Generate test data: 4 cubes with specific vertices and values
+// Generate test data: 4 voxels with specific vertices and values
 void generate_test_data(
     std::vector<Vertex<float>>& grid_vertices,
     std::vector<Vertex<float>>& grid_colors,
@@ -82,19 +82,19 @@ void generate_test_data(
     };
 }
 
-// Generate cube connectivity for the 4-cube test case
-void generate_cubes(
-    std::vector<int>& cube_indices
+// Generate voxel connectivity for the 4-voxel test case
+void generate_voxels(
+    std::vector<int>& voxel_indices
 ) {
-    // 4 cubes, each with 8 vertex indices
-    cube_indices = {
-        // Cube 0
+    // 4 voxels, each with 8 vertex indices
+    voxel_indices = {
+        // Voxel 0
         0, 1, 2, 3, 4, 5, 6, 7,
-        // Cube 1
+        // Voxel 1
         1, 8, 3, 9, 5, 10, 7, 11,
-        // Cube 2
+        // Voxel 2
         12, 13, 14, 15, 0, 1, 2, 3,
-        // Cube 3
+        // Voxel 3
         13, 16, 15, 17, 1, 8, 3, 9
     };
 }
@@ -110,24 +110,24 @@ int main() {
     std::vector<Vertex<float>> grid_vertices;
     std::vector<Vertex<float>> grid_colors;
     std::vector<float> values;
-    std::vector<int> cube_indices;
+    std::vector<int> voxel_indices;
     
-    std::cout << "Generating test data (4 cubes example)..." << std::endl;
+    std::cout << "Generating test data (4 voxels example)..." << std::endl;
     generate_test_data(grid_vertices, grid_colors, values);
-    generate_cubes(cube_indices);
+    generate_voxels(voxel_indices);
     
     int n_vertices = grid_vertices.size();
-    int n_cubes = cube_indices.size() / 8;
+    int n_voxels = voxel_indices.size() / 8;
     
     std::cout << "  Grid vertices: " << n_vertices << std::endl;
-    std::cout << "  Number of cubes: " << n_cubes << std::endl;
+    std::cout << "  Number of voxels: " << n_voxels << std::endl;
     std::cout << "  Isosurface value: " << iso_value << std::endl;
     
     // Device data
     Vertex<float>* d_grid_vertices;
     Vertex<float>* d_grid_colors;
     float* d_values;
-    int* d_cubes;
+    int* d_voxels;
     
     cudaSetDevice(device);
     
@@ -135,22 +135,22 @@ int main() {
     cudaMalloc(&d_grid_vertices, n_vertices * sizeof(Vertex<float>));
     cudaMalloc(&d_grid_colors, n_vertices * sizeof(Vertex<float>));
     cudaMalloc(&d_values, n_vertices * sizeof(float));
-    cudaMalloc(&d_cubes, cube_indices.size() * sizeof(int));
+    cudaMalloc(&d_voxels, voxel_indices.size() * sizeof(int));
     
     std::cout << "Copying data to device..." << std::endl;
     cudaMemcpy(d_grid_vertices, grid_vertices.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
     cudaMemcpy(d_grid_colors, grid_colors.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
     cudaMemcpy(d_values, values.data(), n_vertices * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_cubes, cube_indices.data(), cube_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_voxels, voxel_indices.data(), voxel_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
     
     // ========== FORWARD PASS ==========
     std::cout << "\n=== Forward Pass ===" << std::endl;
     std::cout << "Running forward pass with color data..." << std::endl;
     MC<float, int> mc;
-    mc.forward(d_grid_vertices, d_grid_colors, d_cubes, d_values, n_cubes, iso_value, device);
+    mc.forward(d_grid_vertices, d_grid_colors, d_voxels, d_values, n_voxels, iso_value, device);
     
     std::cout << "Forward pass completed!" << std::endl;
-    std::cout << "  Active cubes: " << mc.n_used_cubes << std::endl;
+    std::cout << "  Active voxels: " << mc.n_used_voxels << std::endl;
     std::cout << "  Generated vertices: " << mc.n_verts << std::endl;
     std::cout << "  Generated triangles: " << mc.n_tris / 3 << std::endl;
     
@@ -257,7 +257,7 @@ int main() {
     std::cout << "Cleaning up device memory..." << std::endl;
     cudaFree(d_grid_vertices);
     cudaFree(d_values);
-    cudaFree(d_cubes);
+    cudaFree(d_voxels);
     cudaFree(d_adj_verts);
     cudaFree(d_adj_values);
     cudaFree(d_adj_colors);
