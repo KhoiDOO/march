@@ -53,8 +53,8 @@ int main() {
     // Outputs (device pointers will be allocated inside the function)
     Vertex<float>* d_out_vertices = nullptr;
     int out_num_vertices = 0;
-    int* d_out_cubes = nullptr;
-    int out_num_cubes = 0;
+    int* d_out_voxels = nullptr;
+    int out_num_voxels = 0;
 
     // Call the voxelization function (explicit instantiation exists for float, int)
     std::cout << "\nCalling pc_to_voxel_grid_chunk (explicit instantiation for float, int)\n";
@@ -64,23 +64,23 @@ int main() {
         res_x, res_y, res_z, chunk_size,
         k_threshold, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
         &d_out_vertices, &out_num_vertices,
-        &d_out_cubes, &out_num_cubes,
+        &d_out_voxels, &out_num_voxels,
         device
     );
 
     std::cout << "Output vertices: " << out_num_vertices << "\n";
-    std::cout << "Output cubes: " << out_num_cubes << "\n";
+    std::cout << "Output voxels: " << out_num_voxels << "\n";
 
     // Copy results back to host if any
     std::vector<Vertex<float>> h_out_vertices;
-    std::vector<int> h_out_cubes;
+    std::vector<int> h_out_voxels;
     if (out_num_vertices > 0) {
         h_out_vertices.resize(out_num_vertices);
         cudaMemcpy(h_out_vertices.data(), d_out_vertices, out_num_vertices * sizeof(Vertex<float>), cudaMemcpyDeviceToHost);
     }
-    if (out_num_cubes > 0) {
-        h_out_cubes.resize(out_num_cubes * 8);
-        cudaMemcpy(h_out_cubes.data(), d_out_cubes, out_num_cubes * 8 * sizeof(int), cudaMemcpyDeviceToHost);
+    if (out_num_voxels > 0) {
+        h_out_voxels.resize(out_num_voxels * 8);
+        cudaMemcpy(h_out_voxels.data(), d_out_voxels, out_num_voxels * 8 * sizeof(int), cudaMemcpyDeviceToHost);
     }
 
     // Save vertices to OBJ for quick inspection
@@ -89,11 +89,11 @@ int main() {
     for (const auto &v : h_out_vertices) {
         obj << "v " << v.x << " " << v.y << " " << v.z << "\n";
     }
-    // Save cube indices as faces (as 8-tuples per cube, not standard OBJ faces)
-    obj << "# cubes (8 vertex indices per cube):\n";
-    for (int i = 0; i < (int)h_out_cubes.size(); i += 8) {
-        obj << "# cube ";
-        for (int j = 0; j < 8; ++j) obj << h_out_cubes[i + j] << (j+1==8?"":" ");
+    // Save voxel indices as faces (as 8-tuples per voxel, not standard OBJ faces)
+    obj << "# voxels (8 vertex indices per voxel):\n";
+    for (int i = 0; i < (int)h_out_voxels.size(); i += 8) {
+        obj << "# voxel ";
+        for (int j = 0; j < 8; ++j) obj << h_out_voxels[i + j] << (j+1==8?"":" ");
         obj << "\n";
     }
     obj.close();
@@ -105,27 +105,27 @@ int main() {
 
     Vertex<float>* d_out_vertices_ll = nullptr;
     long long out_num_vertices_ll = 0;
-    long long* d_out_cubes_ll = nullptr;
-    long long out_num_cubes_ll = 0;
+    long long* d_out_voxels_ll = nullptr;
+    long long out_num_voxels_ll = 0;
 
     grid::pc_to_voxel_grid_chunk<float,long long>(
         d_points, n_points,
         res_x, res_y, res_z, chunk_size,
         k_threshold, num_keep, rmi_x, rmi_y, rmi_z, rma_x, rma_y, rma_z,
         &d_out_vertices_ll, &out_num_vertices_ll,
-        &d_out_cubes_ll, &out_num_cubes_ll,
+        &d_out_voxels_ll, &out_num_voxels_ll,
         device
     );
 
     std::cout << "Output vertices (long long): " << out_num_vertices_ll << "\n";
-    std::cout << "Output cubes (long long): " << out_num_cubes_ll << "\n";
+    std::cout << "Output voxels (long long): " << out_num_voxels_ll << "\n";
 
     // Cleanup
     cudaFree(d_points);
     if (d_out_vertices) cudaFree(d_out_vertices);
-    if (d_out_cubes) cudaFree(d_out_cubes);
+    if (d_out_voxels) cudaFree(d_out_voxels);
     if (d_out_vertices_ll) cudaFree(d_out_vertices_ll);
-    if (d_out_cubes_ll) cudaFree(d_out_cubes_ll);
+    if (d_out_voxels_ll) cudaFree(d_out_voxels_ll);
 
     std::cout << "=== Done ===\n";
     return 0;
