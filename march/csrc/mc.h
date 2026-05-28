@@ -1,11 +1,13 @@
+#ifndef MC_H
+#define MC_H
+
 #include "primitive.h"
 #include <cstdint>
 #include <cuda_runtime.h>
 
-using primitive::Vertex;
-using primitive::Triangle;
 using primitive::EdgeKey;
-
+using primitive::Triangle;
+using primitive::Vertex;
 
 //  Coordinate system
 //
@@ -56,10 +58,12 @@ using primitive::EdgeKey;
 //   o--------2----------o
 //
 
-namespace mc {
+namespace mc
+{
 
     template <typename Scalar, typename IndexType>
-    struct MC {
+    struct MC
+    {
 
         IndexType n_used_voxels{0};
         IndexType n_verts{0};
@@ -70,13 +74,13 @@ namespace mc {
         IndexType *__restrict__ temp_buffer{};
 
         // voxel
-        uint8_t *__restrict__ voxel_codes{};           // voxel code for each cell
+        uint8_t *__restrict__ voxel_codes{}; // voxel code for each cell
 
         // used voxel
         size_t allocated_used_voxel_count{};
-        uint8_t *__restrict__ used_voxel_code{};           // used voxel to voxel code
-        IndexType *__restrict__ used_voxel_index{};        // used voxel to voxel index
-        IndexType *__restrict__ voxel_edge_to_vert_idx{};    // voxel to unique edge index
+        uint8_t *__restrict__ used_voxel_code{};          // used voxel to voxel code
+        IndexType *__restrict__ used_voxel_index{};       // used voxel to voxel index
+        IndexType *__restrict__ voxel_edge_to_vert_idx{}; // voxel to unique edge index
         IndexType *__restrict__ used_to_first_mc_tri{};   // used voxel to mc tri index
 
         // unique edge to vert
@@ -85,9 +89,9 @@ namespace mc {
         // output
         size_t allocated_vert_count{};
         size_t allocated_tri_count{};
-        Vertex<Scalar> *__restrict__ verts{}; // output verts
+        Vertex<Scalar> *__restrict__ verts{};      // output verts
         Vertex<Scalar> *__restrict__ out_colors{}; // output vert colors
-        IndexType *__restrict__ tris{}; // output triangles
+        IndexType *__restrict__ tris{};            // output triangles
 
         __host__ void ensure_grid_storage_size(size_t n_voxels);
         __host__ void ensure_used_voxel_storage_size(size_t n_used_voxels);
@@ -96,13 +100,12 @@ namespace mc {
 
         __host__ void forward(
             Vertex<Scalar> const *grid_vertices, // N * 3 array of grid vertex positions
-            Vertex<Scalar> const *grid_colors, // N * 3 array of grid vertex colors
-            IndexType const *voxels, // (N-1) * 8 array of voxel vertex indices
-            Scalar const *values, // N array of scalar values at grid vertices
-            IndexType n_voxels, 
-            Scalar iso, 
-            int device
-        );
+            Vertex<Scalar> const *grid_colors,   // N * 3 array of grid vertex colors
+            IndexType const *voxels,             // (N-1) * 8 array of voxel vertex indices
+            Scalar const *values,                // N array of scalar values at grid vertices
+            IndexType n_voxels,
+            Scalar iso,
+            int device);
 
         __host__ void backward(
             Vertex<Scalar> const *grid_vertices,
@@ -113,20 +116,32 @@ namespace mc {
             Scalar *adj_values,
             Vertex<Scalar> *adj_grid_colors,
             Scalar iso,
-            int device
-        );
+            int device);
 
-        __host__ ~MC() {
-            if (temp_buffer) cudaFree(temp_buffer);
-            if (voxel_codes) cudaFree(voxel_codes);
-            if (used_voxel_code) cudaFree(used_voxel_code);
-            if (used_voxel_index) cudaFree(used_voxel_index);
-            if (voxel_edge_to_vert_idx) cudaFree(voxel_edge_to_vert_idx);
-            if (used_to_first_mc_tri) cudaFree(used_to_first_mc_tri);
-            if (unique_edges) cudaFree(unique_edges);
-            if (verts) cudaFree(verts);
-            if (tris) cudaFree(tris);
-            if (out_colors) cudaFree(out_colors);
+        __host__ ~MC()
+        {
+            if (temp_buffer)
+                cudaFree(temp_buffer);
+            if (voxel_codes)
+                cudaFree(voxel_codes);
+            if (used_voxel_code)
+                cudaFree(used_voxel_code);
+            if (used_voxel_index)
+                cudaFree(used_voxel_index);
+            if (voxel_edge_to_vert_idx)
+                cudaFree(voxel_edge_to_vert_idx);
+            if (used_to_first_mc_tri)
+                cudaFree(used_to_first_mc_tri);
+            if (unique_edges)
+                cudaFree(unique_edges);
+            if (verts)
+                cudaFree(verts);
+            if (tris)
+                cudaFree(tris);
+            if (out_colors)
+                cudaFree(out_colors);
         }
     };
 }
+
+#endif // MC_H
