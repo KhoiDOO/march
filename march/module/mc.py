@@ -6,7 +6,7 @@ from torch.autograd import Function
 from .._C import MCFI, MCFL
 
 
-class DMC(nn.Module):
+class MC(nn.Module):
     def __init__(self, vdtype=torch.float32, cdtype=torch.int32):
         super().__init__()
         self.vdtype = vdtype
@@ -18,7 +18,7 @@ class DMC(nn.Module):
         else:
             raise NotImplementedError(f"Unsupported dtype: {cdtype}")
             
-        class DMCFunction(Function):
+        class MCFunction(Function):
             @staticmethod
             def forward(ctx, grid_vertices, voxels, values, iso, grid_colors):
                 verts, tris, out_colors = mc.forward(grid_vertices, voxels, values, iso, grid_colors)
@@ -60,7 +60,7 @@ class DMC(nn.Module):
                 # 5. grid_colors -> adj_grid_colors
                 return None, None, adj_values, None, adj_grid_colors
         
-        self.func = DMCFunction
+        self.func = MCFunction
         self._mc = mc  # Keep reference alive
     
     def forward(self, grid_vertices, voxels, values, iso, grid_colors=None):
