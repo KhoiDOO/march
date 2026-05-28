@@ -1,1 +1,3 @@
-from .mc import DMC
+from .mc import MC
+
+__all__ = ["MC"]
