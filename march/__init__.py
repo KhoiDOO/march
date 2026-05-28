@@ -1,1 +1,1 @@
-from .module.mc import DMC
+from .module.mc import MC
