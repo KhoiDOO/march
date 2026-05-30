@@ -36,4 +36,22 @@ struct IsActiveOp
     }
 };
 
+template <typename IndexType>
+struct IsValidEdge
+{
+    __device__ bool operator()(const EdgeKey<IndexType>& a) const
+    {
+        return a.v0 != (IndexType)-1; // Keep if it is NOT a sentinel
+    }
+};
+
+template <typename IndexType>
+struct IsSentinelEdge
+{
+    __device__ bool operator()(const EdgeKey<IndexType>& a) const
+    {
+        return a.v0 == (IndexType)-1; // Identify the sentinels
+    }
+};
+
 #endif // OPS_H
