@@ -12,6 +12,7 @@ using namespace mc;
 // Generate test data: 4 voxels with specific vertices and values
 void generate_test_data(
     std::vector<Vertex<float>>& grid_vertices,
+    std::vector<Vertex<float>>& grid_colors,
     std::vector<float>& values
 ) {
     // Grid vertices (18 vertices)
@@ -34,6 +35,28 @@ void generate_test_data(
         {1, 1, -1},     // v15
         {2, 0, -1},     // v16
         {2, 1, -1}      // v17
+    };
+
+    // Grid colors (18 vertices)
+    grid_colors = {
+        {1, 0, 0},      // v0
+        {0, 1, 0},      // v1
+        {0, 0, 1},      // v2
+        {1, 1, 0},      // v3
+        {1, 0, 1},      // v4
+        {0, 1, 1},      // v5
+        {1, 1, 1},      // v6
+        {0, 0, 0},      // v7
+        {1, 0.5f, 0},   // v8
+        {0.5f, 1, 0},   // v9
+        {0.5f, 0, 1},   // v10
+        {0, 0.5f, 1},   // v11
+        {1, 0, 0.5f},   // v12
+        {0, 1, 0.5f},   // v13
+        {0.5f, 1, 0},   // v14
+        {0.5f, 0.5f, 0.5f}, // v15
+        {0.5f, 0, 0},   // v16
+        {0, 0.5f, 0}    // v17
     };
     
     // Scalar values (18 values)
@@ -85,11 +108,12 @@ int main() {
     
     // Host data
     std::vector<Vertex<float>> grid_vertices;
+    std::vector<Vertex<float>> grid_colors;
     std::vector<float> values;
     std::vector<int> voxel_indices;
     
     std::cout << "Generating test data (4 voxels example)..." << std::endl;
-    generate_test_data(grid_vertices, values);
+    generate_test_data(grid_vertices, grid_colors, values);
     generate_voxels(voxel_indices);
     
     int n_vertices = grid_vertices.size();
@@ -101,6 +125,7 @@ int main() {
     
     // Device data
     Vertex<float>* d_grid_vertices;
+    Vertex<float>* d_grid_colors;
     float* d_values;
     int* d_voxels;
     
@@ -108,11 +133,13 @@ int main() {
     
     std::cout << "\nAllocating device memory..." << std::endl;
     cudaMalloc(&d_grid_vertices, n_vertices * sizeof(Vertex<float>));
+    cudaMalloc(&d_grid_colors, n_vertices * sizeof(Vertex<float>));
     cudaMalloc(&d_values, n_vertices * sizeof(float));
     cudaMalloc(&d_voxels, voxel_indices.size() * sizeof(int));
     
     std::cout << "Copying data to device..." << std::endl;
     cudaMemcpy(d_grid_vertices, grid_vertices.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_grid_colors, grid_colors.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
     cudaMemcpy(d_values, values.data(), n_vertices * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_voxels, voxel_indices.data(), voxel_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
     
@@ -120,7 +147,7 @@ int main() {
     std::cout << "\n=== Forward Pass ===" << std::endl;
     std::cout << "Running forward pass with color data..." << std::endl;
     MC<float, int> mc;
-    mc.forward(d_grid_vertices, nullptr, d_voxels, d_values, n_voxels, iso_value, device);
+    mc.forward(d_grid_vertices, d_grid_colors, d_voxels, d_values, n_voxels, iso_value, device);
     
     std::cout << "Forward pass completed!" << std::endl;
     std::cout << "  Active voxels: " << mc.n_used_voxels << std::endl;
@@ -163,23 +190,29 @@ int main() {
     
     // Allocate device memory for gradients
     Vertex<float>* d_adj_verts;
+    Vertex<float>* d_adj_colors;
+    Vertex<float>* d_adj_grid_colors;
     float* d_adj_values;
     
     std::cout << "Allocating device memory for gradients..." << std::endl;
     cudaMalloc(&d_adj_verts, mc.n_verts * sizeof(Vertex<float>));
+    cudaMalloc(&d_adj_colors, mc.n_verts * sizeof(Vertex<float>));
+    cudaMalloc(&d_adj_grid_colors, n_vertices * sizeof(Vertex<float>));
     cudaMalloc(&d_adj_values, n_vertices * sizeof(float));
     
     std::cout << "Copying adjoint vertices to device..." << std::endl;
     cudaMemcpy(d_adj_verts, adj_verts.data(), mc.n_verts * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_adj_colors, adj_verts.data(), mc.n_verts * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_adj_grid_colors, grid_colors.data(), n_vertices * sizeof(Vertex<float>), cudaMemcpyHostToDevice);
     std::cout << "Running backward pass..." << std::endl;
     mc.backward(
         d_grid_vertices, 
-        nullptr, // No color data in this test
+        d_grid_colors, 
         d_values, 
         d_adj_verts, 
-        nullptr, // No color gradients
+        d_adj_colors,
         d_adj_values, 
-        nullptr, // No color gradients
+        d_adj_grid_colors,
         iso_value, 
         device
     );
@@ -188,28 +221,22 @@ int main() {
     
     // Copy gradients back to host
     std::vector<float> result_adj_values(n_vertices);
+    std::vector<Vertex<float>> result_adj_grid_colors(n_vertices);
     
     std::cout << "Copying adjoint values back to host..." << std::endl;
     cudaMemcpy(result_adj_values.data(), d_adj_values, n_vertices * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(result_adj_grid_colors.data(), d_adj_grid_colors, n_vertices * sizeof(Vertex<float>), cudaMemcpyDeviceToHost);
     
     // Print backward results
     std::cout << "\nBackward Result Gradients (adj_values) for all vertices:" << std::endl;
     for (int i = 0; i < n_vertices; ++i) {
         std::cout << "  dL/dvalue[" << i << "] = " << result_adj_values[i] << std::endl;
     }
-    
-    // Save results to file
-    std::cout << "\nSaving forward results to mc_forward.obj..." << std::endl;
-    std::ofstream obj_file("mc_forward.obj");
-    for (const auto& v : result_verts) {
-        obj_file << "v " << v.x << " " << v.y << " " << v.z << "\n";
+
+    std::cout << "\nBackward Result Gradients (adj_grid_colors) for all vertices:" << std::endl;
+    for (int i = 0; i < n_vertices; ++i) {
+        std::cout << "  dL/dcolor[" << i << "] = (" << result_adj_grid_colors[i].x << ", " << result_adj_grid_colors[i].y << ", " << result_adj_grid_colors[i].z << ")" << std::endl;
     }
-    for (int i = 0; i < mc.n_tris; i += 3) {
-        obj_file << "f " << (result_tris[i]+1) << " " 
-                 << (result_tris[i+1]+1) << " " 
-                 << (result_tris[i+2]+1) << "\n";
-    }
-    obj_file.close();
     
     // Save gradients
     std::cout << "Saving backward results to mc_backward_gradients.txt..." << std::endl;
@@ -218,6 +245,11 @@ int main() {
     grad_file << "# Index, Gradient\n";
     for (int i = 0; i < n_vertices; ++i) {
         grad_file << i << ", " << result_adj_values[i] << "\n";
+    }
+    grad_file << "# Adjoint colors (gradients w.r.t. input vertex colors)\n";
+    grad_file << "# Index, Gradient\n";
+    for (int i = 0; i < n_vertices; ++i) {
+        grad_file << i << ", " << result_adj_grid_colors[i].x << ", " << result_adj_grid_colors[i].y << ", " << result_adj_grid_colors[i].z << "\n";
     }
     grad_file.close();
     
@@ -228,6 +260,8 @@ int main() {
     cudaFree(d_voxels);
     cudaFree(d_adj_verts);
     cudaFree(d_adj_values);
+    cudaFree(d_adj_colors);
+    cudaFree(d_adj_grid_colors);
     std::cout << "\n=== Done ===" << std::endl;
     return 0;
 }
