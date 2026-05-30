@@ -305,13 +305,6 @@ namespace grid
                     {
                         IndexType v_idx = (k + dz) * stride_z + (j + dy) * stride_y + (i + dx);
 
-                        // int u = dx;  // Bit 0: Left-to-right axis
-                        // int v = dz;      // Bit 1: Back-to-front is now Z
-                        // int w = dy;      // Bit 2: Upward is now Y
-
-                        // int topo_idx = (w << 2) | (v << 1) | u;
-                        // int topo_idx = dz * 4 + dy * 2 + dx;
-
                         int topo_idx = (dz << 2) | (dy << 1) | dx;
 
                         out_voxels[base + topo_idx] = vertex_prefix_sum[v_idx];
